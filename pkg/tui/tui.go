@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -65,6 +67,10 @@ type model struct {
 	form          *formModel
 	inForm        bool
 
+	// Select state
+	selectModel   *selectModel
+	inSelect      bool
+
 	// Data
 	selectedItem  string
 }
@@ -82,6 +88,17 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Delegate to select if we're in select mode
+	if m.inSelect && m.selectModel != nil {
+		var cmd tea.Cmd
+		*m.selectModel, cmd = m.selectModel.Update(msg, &m)
+		// Check if select closed
+		if !m.inSelect {
+			m.selectModel = nil
+		}
+		return m, cmd
+	}
+
 	// Delegate to form if we're in a form
 	if m.inForm && m.form != nil {
 		var cmd tea.Cmd
@@ -142,6 +159,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	// Show select if we're in select mode
+	if m.inSelect && m.selectModel != nil {
+		return m.selectModel.View()
+	}
+
 	// Show form if we're in a form
 	if m.inForm && m.form != nil {
 		return m.form.View()
@@ -319,6 +341,16 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			return m, m.form.Init()
 		case 2:
 			m.currentScreen = screenSambaModify
+			selectModel, err := newSambaModifySelect()
+			if err != nil {
+				m.message = fmt.Sprintf("Error: %v", err)
+				m.messageType = "error"
+				m.currentScreen = screenSambaMenu
+				return m, nil
+			}
+			m.selectModel = &selectModel
+			m.inSelect = true
+			return m, m.selectModel.Init()
 		case 3:
 			m.currentScreen = screenSambaRemove
 			form := newSambaRemoveForm()
@@ -342,6 +374,16 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			return m, m.form.Init()
 		case 2:
 			m.currentScreen = screenNFSModify
+			selectModel, err := newNFSModifySelect()
+			if err != nil {
+				m.message = fmt.Sprintf("Error: %v", err)
+				m.messageType = "error"
+				m.currentScreen = screenNFSMenu
+				return m, nil
+			}
+			m.selectModel = &selectModel
+			m.inSelect = true
+			return m, m.selectModel.Init()
 		case 3:
 			m.currentScreen = screenNFSRemove
 			form := newNFSRemoveForm()

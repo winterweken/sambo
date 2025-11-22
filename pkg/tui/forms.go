@@ -39,7 +39,10 @@ type formModel struct {
 	submitIndex   int
 	formType      string // "samba-create", "nfs-create", "user-add", etc.
 	timeMachine   bool
+	readOnly      bool
+	browseable    bool
 	returnScreen  screen
+	originalName  string // For modify operations
 }
 
 func newSambaCreateForm() formModel {
@@ -232,6 +235,139 @@ func newUserRemoveForm() formModel {
 	}
 }
 
+func newSambaModifyForm(shareName string) (formModel, error) {
+	// Load existing share
+	share, err := samba.Get(shareName)
+	if err != nil {
+		return formModel{}, err
+	}
+
+	inputs := make([]formField, 7)
+
+	// Share name (read-only display)
+	nameInput := makeInput(share.Name, "Share name (read-only)")
+	nameInput.CharLimit = 0
+	nameInput.Width = 50
+	inputs[0] = formField{
+		label:       "Share Name",
+		input:       nameInput,
+		description: "Cannot be changed",
+	}
+
+	inputs[1] = formField{
+		label:       "Comment",
+		input:       makeInput(share.Comment, "Share description"),
+		description: "Optional description",
+	}
+	inputs[1].input.SetValue(share.Comment)
+
+	// Valid users
+	usersStr := ""
+	if len(share.ValidUsers) > 0 {
+		usersStr = strings.Join(share.ValidUsers, ", ")
+	}
+	inputs[2] = formField{
+		label:       "Valid Users",
+		input:       makeInput(usersStr, "Comma-separated usernames"),
+		description: "Users who can access (leave empty for all)",
+	}
+	inputs[2].input.SetValue(usersStr)
+
+	// Read-only checkbox
+	inputs[3] = formField{
+		label:       "Read Only",
+		checkbox:    true,
+		checkValue:  share.ReadOnly,
+		description: "Make share read-only",
+	}
+
+	// Browseable checkbox
+	inputs[4] = formField{
+		label:       "Browseable",
+		checkbox:    true,
+		checkValue:  share.Browseable,
+		description: "Make share browseable",
+	}
+
+	// Time Machine checkbox
+	inputs[5] = formField{
+		label:       "Time Machine",
+		checkbox:    true,
+		checkValue:  share.TimeMachine,
+		description: "Enable Apple Time Machine support",
+	}
+
+	// Note about path
+	inputs[6] = formField{
+		label:       fmt.Sprintf("Path: %s (cannot be changed)", share.Path),
+		checkbox:    false,
+		description: "",
+	}
+
+	inputs[1].input.Focus()
+	inputs[1].input.PromptStyle = focusedStyle
+	inputs[1].input.TextStyle = focusedStyle
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   1, // Start at comment field (skip name)
+		submitIndex:  len(inputs),
+		formType:     "samba-modify",
+		timeMachine:  share.TimeMachine,
+		readOnly:     share.ReadOnly,
+		browseable:   share.Browseable,
+		returnScreen: screenSambaMenu,
+		originalName: share.Name,
+	}, nil
+}
+
+func newNFSModifyForm(exportPath string) (formModel, error) {
+	// Load existing export
+	export, err := nfs.Get(exportPath)
+	if err != nil {
+		return formModel{}, err
+	}
+
+	inputs := make([]formField, 3)
+
+	// Path (read-only display)
+	pathInput := makeInput(export.Path, "Export path (read-only)")
+	pathInput.CharLimit = 0
+	pathInput.Width = 50
+	inputs[0] = formField{
+		label:       "Export Path",
+		input:       pathInput,
+		description: "Cannot be changed",
+	}
+
+	inputs[1] = formField{
+		label:       "Clients",
+		input:       makeInput(export.Clients, "IP, CIDR, or * for all"),
+		description: "Client access specification",
+	}
+	inputs[1].input.SetValue(export.Clients)
+
+	inputs[2] = formField{
+		label:       "Options",
+		input:       makeInput(export.Options, "NFS options"),
+		description: "e.g., rw,sync,no_subtree_check",
+	}
+	inputs[2].input.SetValue(export.Options)
+
+	inputs[1].input.Focus()
+	inputs[1].input.PromptStyle = focusedStyle
+	inputs[1].input.TextStyle = focusedStyle
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   1, // Start at clients field
+		submitIndex:  len(inputs),
+		formType:     "nfs-modify",
+		returnScreen: screenNFSMenu,
+		originalName: export.Path,
+	}, nil
+}
+
 func makeInput(placeholder, prompt string) textinput.Model {
 	ti := textinput.New()
 	ti.Placeholder = placeholder
@@ -334,10 +470,14 @@ func (fm formModel) submitForm(parent *model) (formModel, tea.Cmd) {
 	switch fm.formType {
 	case "samba-create":
 		return fm.submitSambaCreate(parent)
+	case "samba-modify":
+		return fm.submitSambaModify(parent)
 	case "samba-remove":
 		return fm.submitSambaRemove(parent)
 	case "nfs-create":
 		return fm.submitNFSCreate(parent)
+	case "nfs-modify":
+		return fm.submitNFSModify(parent)
 	case "nfs-remove":
 		return fm.submitNFSRemove(parent)
 	case "user-add":
@@ -384,7 +524,7 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
-	parent.message = fmt.Sprintf("Share '%s' created successfully", name)
+	parent.message = fmt.Sprintf("Share '%s' created successfully. Samba service reloaded.", name)
 	parent.messageType = "success"
 	parent.currentScreen = fm.returnScreen
 	parent.inForm = false
@@ -406,7 +546,57 @@ func (fm formModel) submitSambaRemove(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
-	parent.message = fmt.Sprintf("Share '%s' removed successfully", name)
+	parent.message = fmt.Sprintf("Share '%s' removed successfully. Samba service reloaded.", name)
+	parent.messageType = "success"
+	parent.currentScreen = fm.returnScreen
+	parent.inForm = false
+	return fm, nil
+}
+
+func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
+	comment := fm.fields[1].input.Value()
+	users := fm.fields[2].input.Value()
+	readOnly := fm.fields[3].checkValue
+	browseable := fm.fields[4].checkValue
+	timeMachine := fm.fields[5].checkValue
+
+	// Get the original share to keep path
+	share, err := samba.Get(fm.originalName)
+	if err != nil {
+		parent.message = fmt.Sprintf("Failed to load share: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	// Update share with new values
+	share.Comment = comment
+	share.ReadOnly = readOnly
+	share.Browseable = browseable
+	share.TimeMachine = timeMachine
+
+	if users != "" {
+		share.ValidUsers = strings.Split(users, ",")
+		for i := range share.ValidUsers {
+			share.ValidUsers[i] = strings.TrimSpace(share.ValidUsers[i])
+		}
+	} else {
+		share.ValidUsers = nil
+	}
+
+	// Remove and re-create the share
+	if err := samba.Remove(fm.originalName); err != nil {
+		parent.message = fmt.Sprintf("Failed to modify share: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	if err := samba.Create(*share); err != nil {
+		parent.message = fmt.Sprintf("Failed to update share: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	parent.message = fmt.Sprintf("Share '%s' modified successfully. Samba service reloaded.", fm.originalName)
 	parent.messageType = "success"
 	parent.currentScreen = fm.returnScreen
 	parent.inForm = false
@@ -435,7 +625,7 @@ func (fm formModel) submitNFSCreate(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
-	parent.message = fmt.Sprintf("Export '%s' created successfully", path)
+	parent.message = fmt.Sprintf("Export '%s' created successfully. NFS exports reloaded.", path)
 	parent.messageType = "success"
 	parent.currentScreen = fm.returnScreen
 	parent.inForm = false
@@ -457,7 +647,45 @@ func (fm formModel) submitNFSRemove(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
-	parent.message = fmt.Sprintf("Export '%s' removed successfully", path)
+	parent.message = fmt.Sprintf("Export '%s' removed successfully. NFS exports reloaded.", path)
+	parent.messageType = "success"
+	parent.currentScreen = fm.returnScreen
+	parent.inForm = false
+	return fm, nil
+}
+
+func (fm formModel) submitNFSModify(parent *model) (formModel, tea.Cmd) {
+	clients := fm.fields[1].input.Value()
+	options := fm.fields[2].input.Value()
+
+	if clients == "" {
+		clients = "*"
+	}
+
+	if options == "" {
+		options = "rw,sync,no_subtree_check"
+	}
+
+	// Remove and re-create the export
+	if err := nfs.Remove(fm.originalName); err != nil {
+		parent.message = fmt.Sprintf("Failed to modify export: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	export := nfs.Export{
+		Path:    fm.originalName,
+		Clients: clients,
+		Options: options,
+	}
+
+	if err := nfs.Create(export); err != nil {
+		parent.message = fmt.Sprintf("Failed to update export: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	parent.message = fmt.Sprintf("Export '%s' modified successfully. NFS exports reloaded.", fm.originalName)
 	parent.messageType = "success"
 	parent.currentScreen = fm.returnScreen
 	parent.inForm = false
