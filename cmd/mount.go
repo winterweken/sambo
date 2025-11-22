@@ -51,6 +51,11 @@ func mountList() error {
 		fmt.Printf("Source:      %s\n", m.Source)
 		fmt.Printf("Mount Point: %s\n", m.MountPoint)
 		fmt.Printf("Options:     %s\n", m.Options)
+		if m.Active {
+			fmt.Printf("Active:      Yes (currently mounted)\n")
+		} else {
+			fmt.Printf("Active:      No (not mounted)\n")
+		}
 		if m.Persistent {
 			fmt.Printf("Persistent:  Yes (in /etc/fstab)\n")
 		} else {
