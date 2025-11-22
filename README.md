@@ -246,6 +246,36 @@ sudo sambo nfs modify -path /mnt/backup -readonly
 sudo sambo nfs remove -path /mnt/backup
 ```
 
+### NFS Configuration Presets (TUI)
+
+The TUI provides easy checkbox options for common NFS configurations:
+
+**✓ Read Only** - Mount as read-only
+- Perfect for: Media servers (Plex, Jellyfin), public file shares
+- Options: `ro` instead of `rw`
+
+**✓ No Root Squash** - Allow root access
+- Perfect for: Backup destinations, Time Machine, system administration
+- Options: `no_root_squash` instead of `root_squash`
+- Warning: Only enable for trusted clients
+
+**✓ Async Mode** - Faster performance
+- Perfect for: Non-critical data, temporary files, media streaming
+- Options: `async` instead of `sync`
+- Warning: Data may be lost in case of server crash
+
+**Common Use Cases:**
+
+| Use Case | Read Only | No Root Squash | Async Mode |
+|----------|-----------|----------------|------------|
+| **Media Server** (Plex/Jellyfin) | ✓ | ✗ | ✓ |
+| **Backup Target** (Time Machine/rsync) | ✗ | ✓ | ✗ |
+| **Public Files** (read-only share) | ✓ | ✗ | ✗ |
+| **Development** (fast, not critical) | ✗ | ✗ | ✓ |
+| **Production Data** (safe default) | ✗ | ✗ | ✗ |
+
+All exports include `no_subtree_check` by default for better performance.
+
 ## User Management
 
 ### List all Samba users

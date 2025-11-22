@@ -90,7 +90,7 @@ func newSambaCreateForm() formModel {
 }
 
 func newNFSCreateForm() formModel {
-	inputs := make([]formField, 2)
+	inputs := make([]formField, 5)
 
 	inputs[0] = formField{
 		label:       "Export Path",
@@ -100,7 +100,25 @@ func newNFSCreateForm() formModel {
 	inputs[1] = formField{
 		label:       "Clients",
 		input:       makeInput("*", "IP, CIDR, or * for all"),
-		description: "Client access specification",
+		description: "Client access specification (e.g., 192.168.1.0/24)",
+	}
+	inputs[2] = formField{
+		label:       "Read Only",
+		checkbox:    true,
+		checkValue:  false,
+		description: "Mount as read-only (recommended for media servers)",
+	}
+	inputs[3] = formField{
+		label:       "No Root Squash",
+		checkbox:    true,
+		checkValue:  false,
+		description: "Allow root access (needed for backups/Time Machine)",
+	}
+	inputs[4] = formField{
+		label:       "Async Mode",
+		checkbox:    true,
+		checkValue:  false,
+		description: "Faster but less safe (good for non-critical data)",
 	}
 
 	inputs[0].input.Focus()
@@ -330,31 +348,48 @@ func newNFSModifyForm(exportPath string) (formModel, error) {
 		return formModel{}, err
 	}
 
-	inputs := make([]formField, 3)
+	// Parse existing options
+	readOnly := strings.Contains(export.Options, "ro")
+	noRootSquash := strings.Contains(export.Options, "no_root_squash")
+	asyncMode := strings.Contains(export.Options, "async")
+
+	inputs := make([]formField, 5)
 
 	// Path (read-only display)
-	pathInput := makeInput(export.Path, "Export path (read-only)")
-	pathInput.CharLimit = 0
-	pathInput.Width = 50
 	inputs[0] = formField{
-		label:       "Export Path",
-		input:       pathInput,
-		description: "Cannot be changed",
+		label:       fmt.Sprintf("Path: %s (cannot be changed)", export.Path),
+		checkbox:    false,
+		description: "",
+		displayOnly: true,
 	}
 
 	inputs[1] = formField{
 		label:       "Clients",
 		input:       makeInput(export.Clients, "IP, CIDR, or * for all"),
-		description: "Client access specification",
+		description: "Client access specification (e.g., 192.168.1.0/24)",
 	}
 	inputs[1].input.SetValue(export.Clients)
 
 	inputs[2] = formField{
-		label:       "Options",
-		input:       makeInput(export.Options, "NFS options"),
-		description: "e.g., rw,sync,no_subtree_check",
+		label:       "Read Only",
+		checkbox:    true,
+		checkValue:  readOnly,
+		description: "Mount as read-only (recommended for media servers)",
 	}
-	inputs[2].input.SetValue(export.Options)
+
+	inputs[3] = formField{
+		label:       "No Root Squash",
+		checkbox:    true,
+		checkValue:  noRootSquash,
+		description: "Allow root access (needed for backups/Time Machine)",
+	}
+
+	inputs[4] = formField{
+		label:       "Async Mode",
+		checkbox:    true,
+		checkValue:  asyncMode,
+		description: "Faster but less safe (good for non-critical data)",
+	}
 
 	inputs[1].input.Focus()
 	inputs[1].input.PromptStyle = focusedStyle
@@ -608,6 +643,9 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 func (fm formModel) submitNFSCreate(parent *model) (formModel, tea.Cmd) {
 	path := fm.fields[0].input.Value()
 	clients := fm.fields[1].input.Value()
+	readOnly := fm.fields[2].checkValue
+	noRootSquash := fm.fields[3].checkValue
+	asyncMode := fm.fields[4].checkValue
 
 	if path == "" {
 		parent.message = "Path is required"
@@ -615,10 +653,36 @@ func (fm formModel) submitNFSCreate(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
+	if clients == "" {
+		clients = "*"
+	}
+
+	// Build options string based on selections
+	var options []string
+	if readOnly {
+		options = append(options, "ro")
+	} else {
+		options = append(options, "rw")
+	}
+
+	if asyncMode {
+		options = append(options, "async")
+	} else {
+		options = append(options, "sync")
+	}
+
+	if noRootSquash {
+		options = append(options, "no_root_squash")
+	} else {
+		options = append(options, "root_squash")
+	}
+
+	options = append(options, "no_subtree_check")
+
 	export := nfs.Export{
 		Path:    path,
 		Clients: clients,
-		Options: "rw,sync,no_subtree_check",
+		Options: strings.Join(options, ","),
 	}
 
 	if err := nfs.Create(export); err != nil {
@@ -658,15 +722,35 @@ func (fm formModel) submitNFSRemove(parent *model) (formModel, tea.Cmd) {
 
 func (fm formModel) submitNFSModify(parent *model) (formModel, tea.Cmd) {
 	clients := fm.fields[1].input.Value()
-	options := fm.fields[2].input.Value()
+	readOnly := fm.fields[2].checkValue
+	noRootSquash := fm.fields[3].checkValue
+	asyncMode := fm.fields[4].checkValue
 
 	if clients == "" {
 		clients = "*"
 	}
 
-	if options == "" {
-		options = "rw,sync,no_subtree_check"
+	// Build options string based on selections
+	var options []string
+	if readOnly {
+		options = append(options, "ro")
+	} else {
+		options = append(options, "rw")
 	}
+
+	if asyncMode {
+		options = append(options, "async")
+	} else {
+		options = append(options, "sync")
+	}
+
+	if noRootSquash {
+		options = append(options, "no_root_squash")
+	} else {
+		options = append(options, "root_squash")
+	}
+
+	options = append(options, "no_subtree_check")
 
 	// Remove and re-create the export
 	if err := nfs.Remove(fm.originalName); err != nil {
@@ -678,7 +762,7 @@ func (fm formModel) submitNFSModify(parent *model) (formModel, tea.Cmd) {
 	export := nfs.Export{
 		Path:    fm.originalName,
 		Clients: clients,
-		Options: options,
+		Options: strings.Join(options, ","),
 	}
 
 	if err := nfs.Create(export); err != nil {
