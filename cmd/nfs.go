@@ -3,6 +3,7 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"os"
 	"sambo/pkg/nfs"
 )
 
@@ -102,7 +103,23 @@ func nfsCreate(args []string) error {
 		return fmt.Errorf("failed to create nfs export: %w", err)
 	}
 
-	fmt.Printf("NFS export '%s' created successfully\n", *path)
+	fmt.Printf("NFS export '%s' created successfully\n\n", *path)
+
+	// Get hostname for mount examples
+	hostname, _ := getHostname()
+
+	fmt.Println("Mount this export on a client with:")
+	fmt.Println("──────────────────────────────────────────────────────────")
+	fmt.Printf("# Temporary mount:\n")
+	fmt.Printf("sudo mount -t nfs %s:%s /mnt/nfs\n\n", hostname, *path)
+
+	fmt.Printf("# Or use sambo to mount:\n")
+	fmt.Printf("sudo sambo mount nfs -source %s:%s -mountpoint /mnt/nfs\n\n", hostname, *path)
+
+	fmt.Printf("# For persistent mount (survives reboot):\n")
+	fmt.Printf("sudo sambo mount nfs -source %s:%s -mountpoint /mnt/nfs -persistent\n", hostname, *path)
+	fmt.Println("──────────────────────────────────────────────────────────")
+
 	return nil
 }
 
@@ -233,4 +250,12 @@ func joinStrings(strs []string, sep string) string {
 		result += sep + strs[i]
 	}
 	return result
+}
+
+func getHostname() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "server", nil // fallback to generic name
+	}
+	return hostname, nil
 }
