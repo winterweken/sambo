@@ -50,19 +50,27 @@ func List() ([]Mount, error) {
 		}
 
 		mountType := fields[2]
-		if mountType != "cifs" && mountType != "nfs" && mountType != "nfs4" {
+
+		// Check if this is a network mount (CIFS or NFS)
+		isNFS := strings.HasPrefix(mountType, "nfs") // Catches nfs, nfs3, nfs4, etc.
+		isCIFS := mountType == "cifs" || mountType == "smb" || mountType == "smbfs"
+
+		if !isNFS && !isCIFS {
 			continue
 		}
 
-		// Normalize nfs4 to nfs
-		if mountType == "nfs4" {
-			mountType = "nfs"
+		// Normalize mount types
+		normalizedType := mountType
+		if isNFS {
+			normalizedType = "nfs"
+		} else if isCIFS {
+			normalizedType = "cifs"
 		}
 
 		mount := Mount{
 			Source:     fields[0],
 			MountPoint: fields[1],
-			Type:       MountType(mountType),
+			Type:       MountType(normalizedType),
 			Persistent: isInFstab(fields[0], fields[1]),
 		}
 
