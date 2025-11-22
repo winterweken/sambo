@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"strings"
+	"sambo/pkg/mount"
 	"sambo/pkg/nfs"
 	"sambo/pkg/samba"
 
@@ -11,7 +13,7 @@ import (
 type selectModel struct {
 	items        []string
 	cursor       int
-	selectType   string // "samba-modify", "nfs-modify"
+	selectType   string // "samba-modify", "nfs-modify", "mount-unmount"
 	returnScreen screen
 	nextScreen   screen
 }
@@ -53,6 +55,26 @@ func newNFSModifySelect() (selectModel, error) {
 		selectType:   "nfs-modify",
 		returnScreen: screenNFSMenu,
 		nextScreen:   screenNFSModify,
+	}, nil
+}
+
+func newMountUnmountSelect() (selectModel, error) {
+	mounts, err := mount.List()
+	if err != nil {
+		return selectModel{}, err
+	}
+
+	items := make([]string, len(mounts))
+	for i, mnt := range mounts {
+		items[i] = fmt.Sprintf("%s (from %s)", mnt.MountPoint, mnt.Source)
+	}
+
+	return selectModel{
+		items:        items,
+		cursor:       0,
+		selectType:   "mount-unmount",
+		returnScreen: screenMountMenu,
+		nextScreen:   screenMountUnmount,
 	}, nil
 }
 
@@ -118,6 +140,19 @@ func (sm selectModel) Update(msg tea.Msg, parent *model) (selectModel, tea.Cmd) 
 				parent.inSelect = false
 				parent.currentScreen = sm.nextScreen
 				return sm, parent.form.Init()
+
+			case "mount-unmount":
+				// Extract mount point from the display string (format: "mountpoint (from source)")
+				mountPoint := selectedItem
+				if idx := strings.Index(selectedItem, " (from "); idx != -1 {
+					mountPoint = selectedItem[:idx]
+				}
+				form := newMountUnmountFormWithPath(mountPoint)
+				parent.form = &form
+				parent.inForm = true
+				parent.inSelect = false
+				parent.currentScreen = sm.nextScreen
+				return sm, parent.form.Init()
 			}
 		}
 	}
@@ -135,6 +170,8 @@ func (sm selectModel) View() string {
 		title = "Select Samba Share to Modify"
 	case "nfs-modify":
 		title = "Select NFS Export to Modify"
+	case "mount-unmount":
+		title = "Select Mount to Unmount"
 	}
 
 	s += titleStyle.Render(title) + "\n\n"

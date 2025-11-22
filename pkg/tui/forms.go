@@ -364,12 +364,13 @@ func newNFSModifyForm(exportPath string) (formModel, error) {
 		displayOnly: true,
 	}
 
+	clientsInput := makeInput("", "IP, CIDR, or * for all")
+	clientsInput.SetValue(export.Clients)
 	inputs[1] = formField{
 		label:       "Clients",
-		input:       makeInput(export.Clients, "IP, CIDR, or * for all"),
+		input:       clientsInput,
 		description: "Client access specification (e.g., 192.168.1.0/24)",
 	}
-	inputs[1].input.SetValue(export.Clients)
 
 	inputs[2] = formField{
 		label:       "Read Only",
@@ -932,11 +933,15 @@ func newMountNFSForm() formModel {
 }
 
 func newMountUnmountForm() formModel {
+	return newMountUnmountFormWithPath("")
+}
+
+func newMountUnmountFormWithPath(mountPoint string) formModel {
 	inputs := make([]formField, 2)
 
 	inputs[0] = formField{
 		label:       "Mount Point",
-		input:       makeInput("", "Path to unmount"),
+		input:       makeInput(mountPoint, "Path to unmount"),
 		description: "Path to the mounted directory",
 	}
 	inputs[1] = formField{
@@ -944,6 +949,11 @@ func newMountUnmountForm() formModel {
 		checkbox:    true,
 		checkValue:  false,
 		description: "Also remove from /etc/fstab",
+	}
+
+	// Set the mount point value if provided
+	if mountPoint != "" {
+		inputs[0].input.SetValue(mountPoint)
 	}
 
 	inputs[0].input.Focus()

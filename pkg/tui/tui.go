@@ -453,11 +453,16 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.inForm = true
 			return m, m.form.Init()
 		case 3:
-			m.currentScreen = screenMountUnmount
-			form := newMountUnmountForm()
-			m.form = &form
-			m.inForm = true
-			return m, m.form.Init()
+			// Show selection list of mounted shares
+			selectModel, err := newMountUnmountSelect()
+			if err != nil {
+				m.message = fmt.Sprintf("Failed to list mounts: %v", err)
+				m.messageType = "error"
+				return m, nil
+			}
+			m.selectModel = &selectModel
+			m.inSelect = true
+			return m, nil
 		case 4:
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
