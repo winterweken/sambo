@@ -20,7 +20,7 @@ type Export struct {
 	Options string
 }
 
-// List returns all configured NFS exports
+// List returns all configured NFS exports, grouped by path
 func List() ([]Export, error) {
 	file, err := os.Open(exportsPath)
 	if err != nil {
@@ -31,7 +31,8 @@ func List() ([]Export, error) {
 	}
 	defer file.Close()
 
-	var exports []Export
+	// Map to group exports by path
+	exportMap := make(map[string]*Export)
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
@@ -45,12 +46,25 @@ func List() ([]Export, error) {
 		// Parse export line: /path client(options)
 		export := parseExportLine(line)
 		if export != nil {
-			exports = append(exports, *export)
+			// Check if we already have this path
+			if existing, exists := exportMap[export.Path]; exists {
+				// Append clients (separated by space)
+				existing.Clients = existing.Clients + " " + export.Clients
+				// Keep first options (they might differ per client, but we'll use first as default)
+			} else {
+				exportMap[export.Path] = export
+			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading exports: %w", err)
+	}
+
+	// Convert map to slice
+	var exports []Export
+	for _, export := range exportMap {
+		exports = append(exports, *export)
 	}
 
 	return exports, nil
