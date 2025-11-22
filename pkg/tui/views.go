@@ -107,24 +107,24 @@ func (m model) viewSambaList() string {
 		}
 	}
 
-	s += "\n" + helpStyle.Render("ESC: Back to menu")
+	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
 
 	return s + "\n"
 }
 
 func (m model) viewNFSList() string {
-	s := titleStyle.Render("NFS Exports") + "\n\n"
+	s := titleStyle.Render(" 🌐 NFS Exports ") + "\n\n"
 
 	exports, err := nfs.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf("Error loading exports: %v", err)) + "\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading exports: %v ", err)) + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(exports) == 0 {
-		s += "No NFS exports configured.\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += emptyStateStyle.Render("📭 No NFS exports configured yet.\n\nUse 'Create Export' to add your first export.") + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
@@ -149,24 +149,24 @@ func (m model) viewNFSList() string {
 		}
 	}
 
-	s += "\n" + helpStyle.Render("ESC: Back to menu")
+	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
 
 	return s + "\n"
 }
 
 func (m model) viewUserList() string {
-	s := titleStyle.Render("Samba Users") + "\n\n"
+	s := titleStyle.Render(" 👤 Samba Users ") + "\n\n"
 
 	users, err := user.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf("Error loading users: %v", err)) + "\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading users: %v ", err)) + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(users) == 0 {
-		s += "No Samba users configured.\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += emptyStateStyle.Render("📭 No Samba users configured yet.\n\nUse 'Add User' to create your first user.") + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
@@ -196,24 +196,24 @@ func (m model) viewUserList() string {
 		}
 	}
 
-	s += "\n" + helpStyle.Render("ESC: Back to menu")
+	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
 
 	return s + "\n"
 }
 
 func (m model) viewMountList() string {
-	s := titleStyle.Render("Network Mounts") + "\n\n"
+	s := titleStyle.Render(" 💾 Network Mounts ") + "\n\n"
 
 	mounts, err := mount.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf("Error loading mounts: %v", err)) + "\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading mounts: %v ", err)) + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(mounts) == 0 {
-		s += "No network mounts found.\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += emptyStateStyle.Render("📭 No network mounts found.\n\nUse 'Mount CIFS/SMB' or 'Mount NFS' to add mounts.") + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
@@ -253,7 +253,7 @@ func (m model) viewMountList() string {
 		}
 	}
 
-	s += "\n" + helpStyle.Render("ESC: Back to menu")
+	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
 
 	return s + "\n"
 }
