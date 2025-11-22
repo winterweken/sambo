@@ -6,8 +6,10 @@ A command-line interface tool for managing Samba (SMB/CIFS) and NFS shares on Li
 
 - **Samba Share Management**: Create, list, modify, and remove Samba shares
 - **NFS Export Management**: Create, list, modify, and remove NFS exports
+- **Network Mount Management**: Mount and manage remote CIFS/SMB and NFS shares
 - **User Management**: Add, remove, and manage Samba users with password control
 - **Simple CLI Interface**: Easy-to-use command structure with helpful output
+- **Interactive TUI**: Beautiful text-based interface for all operations
 - **Configuration Backup**: Automatic backup before making changes
 - **Validation**: Tests configuration before applying changes
 
@@ -34,7 +36,7 @@ Download the latest release for your architecture:
 
 ```bash
 # For AMD64 (most common Intel/AMD servers)
-wget https://github.com/YOUR_USERNAME/sambo/releases/latest/download/sambo-linux-amd64
+wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-amd64
 sudo mv sambo-linux-amd64 /usr/local/bin/sambo
 sudo chmod +x /usr/local/bin/sambo
 
@@ -276,6 +278,84 @@ The TUI provides easy checkbox options for common NFS configurations:
 
 All exports include `no_subtree_check` by default for better performance.
 
+## Network Mount Management
+
+Network mount management allows you to mount remote shares on your system (client-side functionality). This complements the server-side share management features.
+
+### List all network mounts
+
+```bash
+sudo sambo mount list
+```
+
+### Mount a CIFS/SMB share
+
+```bash
+# Basic mount
+sudo sambo mount cifs \
+  -source //server/share \
+  -mountpoint /mnt/share \
+  -username alice \
+  -password secret123
+
+# Persistent mount (survives reboot)
+sudo sambo mount cifs \
+  -source //192.168.1.100/backup \
+  -mountpoint /mnt/backup \
+  -username admin \
+  -password pass123 \
+  -persistent
+```
+
+### Mount an NFS share
+
+```bash
+# Basic mount
+sudo sambo mount nfs \
+  -source server:/export/data \
+  -mountpoint /mnt/data
+
+# Persistent mount (survives reboot)
+sudo sambo mount nfs \
+  -source 192.168.1.100:/backups \
+  -mountpoint /mnt/backups \
+  -persistent
+```
+
+### Unmount a share
+
+```bash
+# Unmount temporarily
+sudo sambo mount unmount -mountpoint /mnt/share
+
+# Unmount and remove from fstab
+sudo sambo mount unmount \
+  -mountpoint /mnt/share \
+  -remove-persistent
+```
+
+### Mount Management in TUI
+
+The interactive TUI provides easy forms for mounting shares:
+
+```bash
+sudo sambo tui
+# Select "Manage Network Mounts"
+```
+
+**Mount Features:**
+- **List Mounts**: View all currently mounted network shares (CIFS and NFS)
+- **Mount CIFS/SMB**: Mount Windows/Samba shares with authentication
+- **Mount NFS**: Mount NFS shares from Linux/Unix servers
+- **Unmount Share**: Safely unmount network shares
+- **Persistent Option**: Automatically mount shares at boot via /etc/fstab
+
+**Important Notes:**
+- Mount points will be created automatically if they don't exist
+- CIFS mounts support username/password authentication
+- Persistent mounts are added to `/etc/fstab` for automatic mounting
+- The "Persistent" checkbox in TUI ensures mounts survive reboots
+
 ## User Management
 
 ### List all Samba users
@@ -361,16 +441,39 @@ sudo sambo user remove -username alice
 sudo sambo user remove -username bob
 ```
 
+### Mounting a remote share persistently
+
+```bash
+# 1. Mount a remote CIFS share (from another server)
+sudo sambo mount cifs \
+  -source //192.168.1.200/documents \
+  -mountpoint /mnt/remote-docs \
+  -username john \
+  -password secret \
+  -persistent
+
+# 2. Mount a remote NFS share (from another server)
+sudo sambo mount nfs \
+  -source 192.168.1.201:/backups \
+  -mountpoint /mnt/remote-backups \
+  -persistent
+
+# 3. Verify mounts
+sudo sambo mount list
+```
+
 ## Configuration Files
 
 Sambo modifies the following system configuration files:
 
 - **Samba**: `/etc/samba/smb.conf`
 - **NFS**: `/etc/exports`
+- **Mounts**: `/etc/fstab` (for persistent mounts)
 
 Backups are created before modifications:
 - `/etc/samba/smb.conf.backup`
 - `/etc/exports.backup`
+- `/etc/fstab.backup`
 
 ## Troubleshooting
 
@@ -408,6 +511,35 @@ sudo systemctl status nfs-kernel-server
 sudo journalctl -u nfs-server -f
 ```
 
+### Mount issues
+
+```bash
+# List all network mounts
+sudo sambo mount list
+
+# Check if a share is mounted
+mount | grep cifs
+mount | grep nfs
+
+# View fstab entries
+cat /etc/fstab
+
+# Manually mount all fstab entries
+sudo mount -a
+
+# Check mount errors
+sudo dmesg | grep -i cifs
+sudo dmesg | grep -i nfs
+
+# For CIFS authentication issues, check credentials file
+sudo cat /root/.smbcredentials
+
+# Unmount a stuck mount
+sudo umount -f /mnt/mountpoint
+# or force lazy unmount
+sudo umount -l /mnt/mountpoint
+```
+
 ### Permission issues
 
 ```bash
@@ -442,14 +574,22 @@ sambo/
 │   ├── root.go         # Main command handler
 │   ├── samba.go        # Samba commands
 │   ├── nfs.go          # NFS commands
+│   ├── mount.go        # Network mount commands
 │   └── user.go         # User commands
 └── pkg/                 # Internal packages
     ├── samba/          # Samba management
     │   └── samba.go
     ├── nfs/            # NFS management
     │   └── nfs.go
-    └── user/           # User management
-        └── user.go
+    ├── mount/          # Network mount management
+    │   └── mount.go
+    ├── user/           # User management
+    │   └── user.go
+    └── tui/            # Terminal UI
+        ├── tui.go
+        ├── forms.go
+        ├── views.go
+        └── select.go
 ```
 
 ### Building

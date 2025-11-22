@@ -2,9 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"sambo/pkg/mount"
 	"sambo/pkg/nfs"
 	"sambo/pkg/samba"
 	"sambo/pkg/user"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -169,6 +171,63 @@ func (m model) viewUserList() string {
 			s += tableRowStyle.Render(row) + "\n"
 		} else {
 			s += tableAltRowStyle.Render(row) + "\n"
+		}
+	}
+
+	s += "\n" + helpStyle.Render("ESC: Back to menu")
+
+	return s + "\n"
+}
+
+func (m model) viewMountList() string {
+	s := titleStyle.Render("Network Mounts") + "\n\n"
+
+	mounts, err := mount.List()
+	if err != nil {
+		s += errorStyle.Render(fmt.Sprintf("Error loading mounts: %v", err)) + "\n\n"
+		s += helpStyle.Render("Press ESC to go back")
+		return s
+	}
+
+	if len(mounts) == 0 {
+		s += "No network mounts found.\n\n"
+		s += helpStyle.Render("Press ESC to go back")
+		return s
+	}
+
+	// Table header
+	s += tableHeaderStyle.Render(
+		fmt.Sprintf("%-8s %-30s %-25s %-12s",
+			"Type", "Source", "Mount Point", "Persistent"),
+	) + "\n"
+
+	// Table rows
+	for i, mnt := range mounts {
+		persistent := "No"
+		if mnt.Persistent {
+			persistent = "Yes"
+		}
+
+		row := fmt.Sprintf("%-8s %-30s %-25s %-12s",
+			strings.ToUpper(string(mnt.Type)),
+			truncate(mnt.Source, 30),
+			truncate(mnt.MountPoint, 25),
+			persistent,
+		)
+
+		if i%2 == 0 {
+			s += tableRowStyle.Render(row) + "\n"
+		} else {
+			s += tableAltRowStyle.Render(row) + "\n"
+		}
+
+		// Show options
+		if mnt.Options != "" {
+			opts := fmt.Sprintf("  Options: %s", truncate(mnt.Options, 70))
+			s += lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#888888")).
+				Italic(true).
+				Render(opts) + "\n"
 		}
 	}
 

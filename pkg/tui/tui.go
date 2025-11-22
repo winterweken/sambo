@@ -50,6 +50,11 @@ const (
 	screenNFSCreate
 	screenNFSModify
 	screenNFSRemove
+	screenMountMenu
+	screenMountList
+	screenMountCIFS
+	screenMountNFS
+	screenMountUnmount
 	screenUserMenu
 	screenUserList
 	screenUserAdd
@@ -126,12 +131,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			// Go back one level
 			switch m.currentScreen {
-			case screenSambaMenu, screenNFSMenu, screenUserMenu:
+			case screenSambaMenu, screenNFSMenu, screenMountMenu, screenUserMenu:
 				m.currentScreen = screenMainMenu
 			case screenSambaList, screenSambaCreate, screenSambaModify, screenSambaRemove:
 				m.currentScreen = screenSambaMenu
 			case screenNFSList, screenNFSCreate, screenNFSModify, screenNFSRemove:
 				m.currentScreen = screenNFSMenu
+			case screenMountList, screenMountCIFS, screenMountNFS, screenMountUnmount:
+				m.currentScreen = screenMountMenu
 			case screenUserList, screenUserAdd, screenUserPassword, screenUserRemove:
 				m.currentScreen = screenUserMenu
 			}
@@ -180,6 +187,10 @@ func (m model) View() string {
 		return m.viewNFSMenu()
 	case screenNFSList:
 		return m.viewNFSList()
+	case screenMountMenu:
+		return m.viewMountMenu()
+	case screenMountList:
+		return m.viewMountList()
 	case screenUserMenu:
 		return m.viewUserMenu()
 	case screenUserList:
@@ -195,6 +206,7 @@ func (m model) viewMainMenu() string {
 	menuItems := []string{
 		"Manage Samba Shares",
 		"Manage NFS Exports",
+		"Manage Network Mounts",
 		"Manage Users",
 		"Exit",
 	}
@@ -275,6 +287,32 @@ func (m model) viewNFSMenu() string {
 	return s + "\n"
 }
 
+func (m model) viewMountMenu() string {
+	s := titleStyle.Render("Network Mount Management") + "\n\n"
+
+	menuItems := []string{
+		"List Mounts",
+		"Mount CIFS/SMB Share",
+		"Mount NFS Share",
+		"Unmount Share",
+		"Back to Main Menu",
+	}
+
+	for i, item := range menuItems {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			s += selectedStyle.Render(cursor+" "+item) + "\n"
+		} else {
+			s += menuStyle.Render(cursor+" "+item) + "\n"
+		}
+	}
+
+	s += "\n" + helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+
+	return s + "\n"
+}
+
 func (m model) viewUserMenu() string {
 	s := titleStyle.Render("User Management") + "\n\n"
 
@@ -304,8 +342,8 @@ func (m model) viewUserMenu() string {
 func (m model) getMaxCursor() int {
 	switch m.currentScreen {
 	case screenMainMenu:
-		return 3
-	case screenSambaMenu, screenNFSMenu, screenUserMenu:
+		return 4
+	case screenSambaMenu, screenNFSMenu, screenMountMenu, screenUserMenu:
 		return 4
 	default:
 		return 0
@@ -323,9 +361,12 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenNFSMenu
 			m.cursor = 0
 		case 2:
-			m.currentScreen = screenUserMenu
+			m.currentScreen = screenMountMenu
 			m.cursor = 0
 		case 3:
+			m.currentScreen = screenUserMenu
+			m.cursor = 0
+		case 4:
 			return m, tea.Quit
 		}
 
@@ -387,6 +428,33 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 		case 3:
 			m.currentScreen = screenNFSRemove
 			form := newNFSRemoveForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
+		case 4:
+			m.currentScreen = screenMainMenu
+			m.cursor = 0
+		}
+
+	case screenMountMenu:
+		switch m.cursor {
+		case 0:
+			m.currentScreen = screenMountList
+		case 1:
+			m.currentScreen = screenMountCIFS
+			form := newMountCIFSForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
+		case 2:
+			m.currentScreen = screenMountNFS
+			form := newMountNFSForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
+		case 3:
+			m.currentScreen = screenMountUnmount
+			form := newMountUnmountForm()
 			m.form = &form
 			m.inForm = true
 			return m, m.form.Init()

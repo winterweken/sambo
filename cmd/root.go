@@ -38,6 +38,8 @@ func Execute() error {
 		return handleSamba(os.Args[2:])
 	case "nfs":
 		return handleNFS(os.Args[2:])
+	case "mount":
+		return handleMount(os.Args[2:])
 	case "user":
 		return handleUser(os.Args[2:])
 	default:
@@ -56,6 +58,7 @@ COMMANDS:
     tui         Launch interactive menu (recommended)
     samba       Manage Samba (SMB/CIFS) shares
     nfs         Manage NFS shares
+    mount       Mount and manage network shares (client-side)
     user        Manage share users and permissions
     help        Show this help message
     version     Show version information
@@ -67,6 +70,7 @@ EXAMPLES:
     sambo samba list
     sambo samba create -name myshare -path /mnt/data
     sambo nfs create -name backup -path /mnt/backup -clients 192.168.1.0/24
+    sambo mount cifs -source //server/share -mountpoint /mnt/share
     sambo user add -username john -password secret`)
 }
 

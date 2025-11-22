@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"sambo/pkg/mount"
 	"sambo/pkg/nfs"
 	"sambo/pkg/samba"
 	"sambo/pkg/user"
@@ -517,6 +518,12 @@ func (fm formModel) submitForm(parent *model) (formModel, tea.Cmd) {
 		return fm.submitNFSModify(parent)
 	case "nfs-remove":
 		return fm.submitNFSRemove(parent)
+	case "mount-cifs":
+		return fm.submitMountCIFS(parent)
+	case "mount-nfs":
+		return fm.submitMountNFS(parent)
+	case "mount-unmount":
+		return fm.submitMountUnmount(parent)
 	case "user-add":
 		return fm.submitUserAdd(parent)
 	case "user-password":
@@ -846,6 +853,198 @@ func (fm formModel) submitUserRemove(parent *model) (formModel, tea.Cmd) {
 	return fm, nil
 }
 
+// Mount form functions
+
+func newMountCIFSForm() formModel {
+	inputs := make([]formField, 5)
+
+	inputs[0] = formField{
+		label:       "Source Share",
+		input:       makeInput("//server/share", "Source (//server/share)"),
+		description: "Remote CIFS/SMB share path",
+	}
+	inputs[1] = formField{
+		label:       "Mount Point",
+		input:       makeInput("/mnt/share", "Local mount point"),
+		description: "Local directory to mount at",
+	}
+	inputs[2] = formField{
+		label:       "Username",
+		input:       makeInput("", "Username (optional)"),
+		description: "Leave empty to use credentials file",
+	}
+	inputs[3] = formField{
+		label:       "Password",
+		input:       makePasswordInput("", "Password (optional)"),
+		description: "Leave empty to use credentials file",
+	}
+	inputs[4] = formField{
+		label:       "Persistent",
+		checkbox:    true,
+		checkValue:  false,
+		description: "Add to /etc/fstab for automatic mounting",
+	}
+
+	inputs[0].input.Focus()
+	inputs[0].input.PromptStyle = focusedStyle
+	inputs[0].input.TextStyle = focusedStyle
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   0,
+		submitIndex:  len(inputs),
+		formType:     "mount-cifs",
+		returnScreen: screenMountMenu,
+	}
+}
+
+func newMountNFSForm() formModel {
+	inputs := make([]formField, 3)
+
+	inputs[0] = formField{
+		label:       "Source Share",
+		input:       makeInput("server:/path", "Source (server:/path)"),
+		description: "Remote NFS share path",
+	}
+	inputs[1] = formField{
+		label:       "Mount Point",
+		input:       makeInput("/mnt/share", "Local mount point"),
+		description: "Local directory to mount at",
+	}
+	inputs[2] = formField{
+		label:       "Persistent",
+		checkbox:    true,
+		checkValue:  false,
+		description: "Add to /etc/fstab for automatic mounting",
+	}
+
+	inputs[0].input.Focus()
+	inputs[0].input.PromptStyle = focusedStyle
+	inputs[0].input.TextStyle = focusedStyle
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   0,
+		submitIndex:  len(inputs),
+		formType:     "mount-nfs",
+		returnScreen: screenMountMenu,
+	}
+}
+
+func newMountUnmountForm() formModel {
+	inputs := make([]formField, 2)
+
+	inputs[0] = formField{
+		label:       "Mount Point",
+		input:       makeInput("", "Path to unmount"),
+		description: "Path to the mounted directory",
+	}
+	inputs[1] = formField{
+		label:       "Remove Persistent",
+		checkbox:    true,
+		checkValue:  false,
+		description: "Also remove from /etc/fstab",
+	}
+
+	inputs[0].input.Focus()
+	inputs[0].input.PromptStyle = focusedStyle
+	inputs[0].input.TextStyle = focusedStyle
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   0,
+		submitIndex:  len(inputs),
+		formType:     "mount-unmount",
+		returnScreen: screenMountMenu,
+	}
+}
+
+func (fm formModel) submitMountCIFS(parent *model) (formModel, tea.Cmd) {
+	source := fm.fields[0].input.Value()
+	mountPoint := fm.fields[1].input.Value()
+	username := fm.fields[2].input.Value()
+	password := fm.fields[3].input.Value()
+	persistent := fm.fields[4].checkValue
+
+	if source == "" || mountPoint == "" {
+		parent.message = "Source and mount point are required"
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	// Build options string
+	var opts []string
+	if username != "" {
+		opts = append(opts, fmt.Sprintf("username=%s", username))
+		if password != "" {
+			opts = append(opts, fmt.Sprintf("password=%s", password))
+		}
+	} else {
+		opts = append(opts, "credentials=/root/.smbcredentials")
+	}
+	opts = append(opts, "uid=1000", "gid=1000")
+	optionsStr := strings.Join(opts, ",")
+
+	if err := mount.MountCIFS(source, mountPoint, optionsStr, persistent); err != nil {
+		parent.message = fmt.Sprintf("Failed to mount: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	parent.message = fmt.Sprintf("CIFS share mounted at '%s'", mountPoint)
+	parent.messageType = "success"
+	parent.currentScreen = fm.returnScreen
+	parent.inForm = false
+	return fm, nil
+}
+
+func (fm formModel) submitMountNFS(parent *model) (formModel, tea.Cmd) {
+	source := fm.fields[0].input.Value()
+	mountPoint := fm.fields[1].input.Value()
+	persistent := fm.fields[2].checkValue
+
+	if source == "" || mountPoint == "" {
+		parent.message = "Source and mount point are required"
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	if err := mount.MountNFS(source, mountPoint, "defaults", persistent); err != nil {
+		parent.message = fmt.Sprintf("Failed to mount: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	parent.message = fmt.Sprintf("NFS share mounted at '%s'", mountPoint)
+	parent.messageType = "success"
+	parent.currentScreen = fm.returnScreen
+	parent.inForm = false
+	return fm, nil
+}
+
+func (fm formModel) submitMountUnmount(parent *model) (formModel, tea.Cmd) {
+	mountPoint := fm.fields[0].input.Value()
+	removePersistent := fm.fields[1].checkValue
+
+	if mountPoint == "" {
+		parent.message = "Mount point is required"
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	if err := mount.Unmount(mountPoint, removePersistent); err != nil {
+		parent.message = fmt.Sprintf("Failed to unmount: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	parent.message = fmt.Sprintf("Successfully unmounted '%s'", mountPoint)
+	parent.messageType = "success"
+	parent.currentScreen = fm.returnScreen
+	parent.inForm = false
+	return fm, nil
+}
+
 func (fm formModel) View() string {
 	var b strings.Builder
 
@@ -864,6 +1063,12 @@ func (fm formModel) View() string {
 		title = "Modify NFS Export"
 	case "nfs-remove":
 		title = "Remove NFS Export"
+	case "mount-cifs":
+		title = "Mount CIFS/SMB Share"
+	case "mount-nfs":
+		title = "Mount NFS Share"
+	case "mount-unmount":
+		title = "Unmount Network Share"
 	case "user-add":
 		title = "Add User"
 	case "user-password":
