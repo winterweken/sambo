@@ -31,6 +31,7 @@ type formField struct {
 	checkbox    bool
 	checkValue  bool
 	description string
+	displayOnly bool // For read-only display fields
 }
 
 type formModel struct {
@@ -302,6 +303,7 @@ func newSambaModifyForm(shareName string) (formModel, error) {
 		label:       fmt.Sprintf("Path: %s (cannot be changed)", share.Path),
 		checkbox:    false,
 		description: "",
+		displayOnly: true,
 	}
 
 	inputs[1].input.Focus()
@@ -416,11 +418,11 @@ func (fm formModel) Update(msg tea.Msg, parent *model) (formModel, tea.Cmd) {
 
 			// Update input focus
 			for i := range fm.fields {
-				if i == fm.focusIndex && !fm.fields[i].checkbox {
+				if i == fm.focusIndex && !fm.fields[i].checkbox && !fm.fields[i].displayOnly {
 					fm.fields[i].input.Focus()
 					fm.fields[i].input.PromptStyle = focusedStyle
 					fm.fields[i].input.TextStyle = focusedStyle
-				} else if !fm.fields[i].checkbox {
+				} else if !fm.fields[i].checkbox && !fm.fields[i].displayOnly {
 					fm.fields[i].input.Blur()
 					fm.fields[i].input.PromptStyle = noStyle
 					fm.fields[i].input.TextStyle = noStyle
@@ -457,7 +459,7 @@ func (fm formModel) Update(msg tea.Msg, parent *model) (formModel, tea.Cmd) {
 	}
 
 	// Update the focused input
-	if fm.focusIndex < len(fm.fields) && !fm.fields[fm.focusIndex].checkbox {
+	if fm.focusIndex < len(fm.fields) && !fm.fields[fm.focusIndex].checkbox && !fm.fields[fm.focusIndex].displayOnly {
 		var cmd tea.Cmd
 		fm.fields[fm.focusIndex].input, cmd = fm.fields[fm.focusIndex].input.Update(msg)
 		return fm, cmd
@@ -768,10 +770,14 @@ func (fm formModel) View() string {
 	switch fm.formType {
 	case "samba-create":
 		title = "Create Samba Share"
+	case "samba-modify":
+		title = "Modify Samba Share"
 	case "samba-remove":
 		title = "Remove Samba Share"
 	case "nfs-create":
 		title = "Create NFS Export"
+	case "nfs-modify":
+		title = "Modify NFS Export"
 	case "nfs-remove":
 		title = "Remove NFS Export"
 	case "user-add":
@@ -786,7 +792,10 @@ func (fm formModel) View() string {
 
 	// Form fields
 	for i, field := range fm.fields {
-		if field.checkbox {
+		if field.displayOnly {
+			// Display-only field (no input)
+			b.WriteString(fmt.Sprintf("  %s\n", blurredStyle.Render(field.label)))
+		} else if field.checkbox {
 			// Checkbox field
 			checkbox := checkboxUnchecked
 			if field.checkValue {
