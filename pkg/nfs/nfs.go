@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	exportsPath = "/etc/exports"
+	exportsPath   = "/etc/exports"
 	exportsBackup = "/etc/exports.backup"
 )
 

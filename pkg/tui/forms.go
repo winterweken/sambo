@@ -35,15 +35,15 @@ type formField struct {
 }
 
 type formModel struct {
-	fields        []formField
-	focusIndex    int
-	submitIndex   int
-	formType      string // "samba-create", "nfs-create", "user-add", etc.
-	timeMachine   bool
-	readOnly      bool
-	browseable    bool
-	returnScreen  screen
-	originalName  string // For modify operations
+	fields       []formField
+	focusIndex   int
+	submitIndex  int
+	formType     string // "samba-create", "nfs-create", "user-add", etc.
+	timeMachine  bool
+	readOnly     bool
+	browseable   bool
+	returnScreen screen
+	originalName string // For modify operations
 }
 
 func newSambaCreateForm() formModel {
@@ -540,12 +540,12 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	}
 
 	share := samba.Share{
-		Name:         name,
-		Path:         path,
-		Comment:      comment,
-		ReadOnly:     false,
-		Browseable:   true,
-		TimeMachine:  fm.timeMachine,
+		Name:        name,
+		Path:        path,
+		Comment:     comment,
+		ReadOnly:    false,
+		Browseable:  true,
+		TimeMachine: fm.timeMachine,
 	}
 
 	if users != "" {

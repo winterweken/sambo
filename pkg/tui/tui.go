@@ -64,15 +64,15 @@ type model struct {
 	messageType   string // "error", "success", ""
 
 	// Form state
-	form          *formModel
-	inForm        bool
+	form   *formModel
+	inForm bool
 
 	// Select state
-	selectModel   *selectModel
-	inSelect      bool
+	selectModel *selectModel
+	inSelect    bool
 
 	// Data
-	selectedItem  string
+	selectedItem string
 }
 
 func newModel() model {
