@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          # Linux AMD64
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o sambo-linux-amd64 .
+
+          # Linux ARM64
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o sambo-linux-arm64 .
+
+          # Linux ARM
+          GOOS=linux GOARCH=arm go build -ldflags="-s -w" -o sambo-linux-arm .
+
+          # Create checksums
+          sha256sum sambo-linux-* > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            sambo-linux-amd64
+            sambo-linux-arm64
+            sambo-linux-arm
+            checksums.txt
+          body: |
+            ## Sambo ${{ steps.version.outputs.VERSION }}
+
+            Linux Share Management CLI - Manage Samba and NFS shares from the command line.
+
+            ### Installation
+
+            Download the appropriate binary for your architecture:
+
+            ```bash
+            # For AMD64 (most common)
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/sambo-linux-amd64
+            sudo mv sambo-linux-amd64 /usr/local/bin/sambo
+            sudo chmod +x /usr/local/bin/sambo
+
+            # For ARM64
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/sambo-linux-arm64
+            sudo mv sambo-linux-arm64 /usr/local/bin/sambo
+            sudo chmod +x /usr/local/bin/sambo
+            ```
+
+            ### Verify Installation
+
+            ```bash
+            sudo sambo version
+            ```
+
+            ### What's Changed
+
+            See the commits since last release for details.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

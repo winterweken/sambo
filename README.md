@@ -28,27 +28,52 @@ A command-line interface tool for managing Samba (SMB/CIFS) and NFS shares on Li
 
 ## Installation
 
+### Download Pre-built Binary (Recommended)
+
+Download the latest release for your architecture:
+
+```bash
+# For AMD64 (most common Intel/AMD servers)
+wget https://github.com/YOUR_USERNAME/sambo/releases/latest/download/sambo-linux-amd64
+sudo mv sambo-linux-amd64 /usr/local/bin/sambo
+sudo chmod +x /usr/local/bin/sambo
+
+# For ARM64 (Raspberry Pi 4, AWS Graviton, etc.)
+wget https://github.com/YOUR_USERNAME/sambo/releases/latest/download/sambo-linux-arm64
+sudo mv sambo-linux-arm64 /usr/local/bin/sambo
+sudo chmod +x /usr/local/bin/sambo
+
+# For ARM (Raspberry Pi 3 and older)
+wget https://github.com/YOUR_USERNAME/sambo/releases/latest/download/sambo-linux-arm
+sudo mv sambo-linux-arm /usr/local/bin/sambo
+sudo chmod +x /usr/local/bin/sambo
+
+# Verify installation
+sudo sambo version
+```
+
 ### Build from Source
 
 ```bash
-# Clone or navigate to the project directory
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/sambo.git
 cd sambo
 
 # Build the binary
-go build -o sambo
+make build
 
-# Install to system path (optional)
-sudo mv sambo /usr/local/bin/
+# Install to system path
+sudo make install
 
 # Or run directly
-sudo ./sambo
+sudo ./build/sambo
 ```
 
 ### Quick Install Script
 
 ```bash
-# Build and install
-go build -o sambo && sudo mv sambo /usr/local/bin/
+# Build and install from source
+make build && sudo make install
 ```
 
 ## Usage
