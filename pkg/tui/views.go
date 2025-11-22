@@ -12,36 +12,58 @@ import (
 )
 
 var (
+	// Table styles
 	tableHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#7D56F4")).
-				BorderStyle(lipgloss.NormalBorder()).
+				Foreground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
+				Background(lipgloss.AdaptiveColor{Light: "#F0E6FF", Dark: "#2A1A3F"}).
+				Padding(0, 1).
+				BorderStyle(lipgloss.RoundedBorder()).
+				BorderTop(true).
 				BorderBottom(true).
-				BorderForeground(lipgloss.Color("#7D56F4"))
+				BorderLeft(true).
+				BorderRight(true).
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"})
 
 	tableRowStyle = lipgloss.NewStyle().
 			PaddingLeft(1).
-			PaddingRight(1)
+			PaddingRight(1).
+			Foreground(lipgloss.AdaptiveColor{Light: "#333", Dark: "#FFF"})
 
 	tableAltRowStyle = lipgloss.NewStyle().
 				PaddingLeft(1).
 				PaddingRight(1).
-				Foreground(lipgloss.Color("#CCCCCC"))
+				Background(lipgloss.AdaptiveColor{Light: "#F8F8F8", Dark: "#222222"}).
+				Foreground(lipgloss.AdaptiveColor{Light: "#333", Dark: "#DDD"})
+
+	tableBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}).
+			Padding(1, 2).
+			MarginTop(1)
+
+	emptyStateStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#999", Dark: "#666"}).
+			Italic(true).
+			Padding(2, 4).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#DDD", Dark: "#333"}).
+			BorderStyle(lipgloss.NormalBorder())
 )
 
 func (m model) viewSambaList() string {
-	s := titleStyle.Render("Samba Shares") + "\n\n"
+	s := titleStyle.Render(" 📁 Samba Shares ") + "\n\n"
 
 	shares, err := samba.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf("Error loading shares: %v", err)) + "\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading shares: %v ", err)) + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(shares) == 0 {
-		s += "No Samba shares configured.\n\n"
-		s += helpStyle.Render("Press ESC to go back")
+		s += emptyStateStyle.Render("📭 No Samba shares configured yet.\n\nUse 'Create Share' to add your first share.") + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
