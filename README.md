@@ -84,11 +84,35 @@ All commands must be run with root privileges:
 sudo sambo <command> [subcommand] [options]
 ```
 
+### Interactive TUI Mode (Recommended)
+
+Sambo includes a beautiful text-based user interface (TUI) similar to DockStarter, making it easy to manage shares interactively:
+
+```bash
+sudo sambo tui
+```
+
+The TUI provides:
+- **Arrow key navigation** through menus
+- **Interactive lists** of shares, exports, and users
+- **Visual feedback** with color-coded output
+- **Easy navigation** - ESC to go back, Q to quit
+- **Real-time viewing** of configured shares
+
+**TUI Navigation:**
+- `↑/↓` or `j/k` - Move up/down
+- `Enter` - Select menu item
+- `ESC` - Go back one level
+- `Q` - Return to main menu or quit
+
+This is the easiest way to use Sambo, especially for users who prefer interactive menus over CLI commands.
+
 ### General Commands
 
 ```bash
 sambo help              # Show help
 sambo version           # Show version
+sambo tui               # Launch interactive menu (requires sudo)
 ```
 
 ## Samba Share Management

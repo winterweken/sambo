@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sambo/pkg/tui"
 )
 
 // Execute is the main entry point for the CLI
@@ -31,6 +32,8 @@ func Execute() error {
 	}
 
 	switch command {
+	case "tui":
+		return tui.Start()
 	case "samba":
 		return handleSamba(os.Args[2:])
 	case "nfs":
@@ -50,6 +53,7 @@ USAGE:
     sambo <command> [options]
 
 COMMANDS:
+    tui         Launch interactive menu (recommended)
     samba       Manage Samba (SMB/CIFS) shares
     nfs         Manage NFS shares
     user        Manage share users and permissions
@@ -59,6 +63,7 @@ COMMANDS:
 Run 'sambo <command> -h' for more information on a specific command.
 
 EXAMPLES:
+    sudo sambo tui                    # Launch interactive menu
     sambo samba list
     sambo samba create -name myshare -path /mnt/data
     sambo nfs create -name backup -path /mnt/backup -clients 192.168.1.0/24
