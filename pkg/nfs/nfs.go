@@ -13,6 +13,24 @@ const (
 	exportsBackup = "/etc/exports.backup"
 )
 
+// CheckInstalled verifies that NFS server is installed and configured
+func CheckInstalled() error {
+	// Check if exportfs binary exists
+	if _, err := exec.LookPath("exportfs"); err != nil {
+		return fmt.Errorf("NFS server is not installed.\n\nPlease install NFS server:\n  Debian/Ubuntu: sudo apt-get install nfs-kernel-server\n  RHEL/CentOS:   sudo yum install nfs-utils\n  Arch:          sudo pacman -S nfs-utils")
+	}
+
+	// Check if exports file exists, create if missing
+	if _, err := os.Stat(exportsPath); os.IsNotExist(err) {
+		// Create empty exports file
+		if err := os.WriteFile(exportsPath, []byte("# NFS exports\n"), 0644); err != nil {
+			return fmt.Errorf("NFS is installed but cannot create exports file: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Export represents an NFS export configuration
 type Export struct {
 	Path    string

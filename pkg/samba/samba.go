@@ -13,6 +13,37 @@ const (
 	sambaBackup   = "/etc/samba/smb.conf.backup"
 )
 
+// CheckInstalled verifies that Samba is installed and configured
+func CheckInstalled() error {
+	// Check if smbd binary exists
+	if _, err := exec.LookPath("smbd"); err != nil {
+		return fmt.Errorf("Samba is not installed.\n\nPlease install Samba:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
+	}
+
+	// Check if config file exists, create if missing
+	if _, err := os.Stat(sambaConfPath); os.IsNotExist(err) {
+		// Try to create directory
+		if err := os.MkdirAll("/etc/samba", 0755); err != nil {
+			return fmt.Errorf("Samba is installed but cannot create config directory: %w", err)
+		}
+
+		// Create basic smb.conf
+		basicConfig := `[global]
+   workgroup = WORKGROUP
+   server string = Samba Server
+   security = user
+   map to guest = Bad User
+   dns proxy = no
+
+`
+		if err := os.WriteFile(sambaConfPath, []byte(basicConfig), 0644); err != nil {
+			return fmt.Errorf("Samba is installed but cannot create config file: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Share represents a Samba share configuration
 type Share struct {
 	Name        string

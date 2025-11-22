@@ -3,7 +3,24 @@
     "allow": [
       "Bash(git commit -m \"$(cat <<''EOF''\nAdd network mount management for CIFS/SMB and NFS shares\n\n- Add pkg/mount package for client-side mount operations\n- Support mounting CIFS/SMB shares with authentication\n- Support mounting NFS shares\n- Add persistent mount option (automatic /etc/fstab management)\n- Add unmount functionality with fstab cleanup\n- Integrate mount management into TUI with interactive forms\n- Add CLI commands: mount list/cifs/nfs/unmount\n- Update README with network mount documentation and examples\n- Automatic backup of /etc/fstab before modifications\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git config:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git tag:*)",
+      "Bash(GOOS=linux GOARCH=amd64 go build:*)",
+      "Bash(GOOS=linux GOARCH=arm64 go build:*)",
+      "Bash(GOOS=linux GOARCH=arm go build:*)",
+      "Bash(gh release create:*)",
+      "Bash(sambo-linux-amd64 )",
+      "Bash(sambo-linux-arm64 )",
+      "Bash(sambo-linux-arm)",
+      "Bash(brew install:*)",
+      "Bash(gh auth status:*)",
+      "Bash(gh auth login:*)",
+      "Bash(gh release delete:*)",
+      "Bash(go build:*)"
     ],
     "deny": [],
     "ask": []

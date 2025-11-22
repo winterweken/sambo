@@ -583,6 +583,13 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
+	// Check if Samba is installed
+	if err := samba.CheckInstalled(); err != nil {
+		parent.message = fmt.Sprintf("%v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
 	share := samba.Share{
 		Name:        name,
 		Path:        path,
@@ -693,6 +700,13 @@ func (fm formModel) submitNFSCreate(parent *model) (formModel, tea.Cmd) {
 
 	if path == "" {
 		parent.message = "Path is required"
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	// Check if NFS is installed
+	if err := nfs.CheckInstalled(); err != nil {
+		parent.message = fmt.Sprintf("%v", err)
 		parent.messageType = "error"
 		return fm, nil
 	}
