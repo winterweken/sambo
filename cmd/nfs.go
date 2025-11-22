@@ -285,11 +285,3 @@ func joinStrings(strs []string, sep string) string {
 	}
 	return result
 }
-
-func getHostname() (string, error) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "server", nil // fallback to generic name
-	}
-	return hostname, nil
-}
