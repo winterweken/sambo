@@ -14,16 +14,52 @@ import (
 )
 
 var (
-	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
-	blurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	cursorStyle  = focusedStyle.Copy()
-	noStyle      = lipgloss.NewStyle()
+	focusedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
+			Bold(true)
 
-	focusedButton = focusedStyle.Copy().Render("[ Submit ]")
-	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("Submit"))
+	blurredStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
 
-	checkboxChecked   = focusedStyle.Render("[✓]")
-	checkboxUnchecked = blurredStyle.Render("[ ]")
+	cursorStyle = focusedStyle.Copy()
+	noStyle     = lipgloss.NewStyle()
+
+	focusedButton = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"}).
+			Background(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
+			Padding(0, 3).
+			Bold(true).
+			Render("Submit")
+
+	blurredButton = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"}).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}).
+			Padding(0, 3).
+			Render("Submit")
+
+	checkboxChecked = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"}).
+			Bold(true).
+			Render("[✓]")
+
+	checkboxUnchecked = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}).
+				Render("[ ]")
+
+	formBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
+			Padding(1, 2).
+			MarginTop(1)
+
+	fieldLabelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#5A4FCF", Dark: "#7D6FD9"}).
+			Bold(true)
+
+	fieldDescStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"}).
+			Italic(true)
 )
 
 type formField struct {
