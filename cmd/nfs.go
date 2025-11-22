@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sambo/pkg/nfs"
 )
 
@@ -133,11 +135,43 @@ func nfsRemove(args []string) error {
 		return fmt.Errorf("path is required")
 	}
 
+	exportPath := *path
+
+	// Remove the NFS export configuration
 	if err := nfs.Remove(*path); err != nil {
 		return fmt.Errorf("failed to remove nfs export: %w", err)
 	}
 
 	fmt.Printf("NFS export '%s' removed successfully\n", *path)
+
+	// Ask if user wants to delete the folder and data
+	fmt.Printf("\nThe export folder still exists at: %s\n", exportPath)
+	fmt.Print("Do you want to delete this folder and all its data? (y/N): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	if response == "y" || response == "yes" {
+		// Confirm the permanent deletion
+		fmt.Printf("\n⚠️  WARNING: This will permanently delete the folder and all data at:\n   %s\n", exportPath)
+		fmt.Print("Are you absolutely sure? Type 'DELETE' to confirm: ")
+
+		confirmation, _ := reader.ReadString('\n')
+		confirmation = strings.TrimSpace(confirmation)
+
+		if confirmation == "DELETE" {
+			if err := os.RemoveAll(exportPath); err != nil {
+				return fmt.Errorf("failed to delete folder: %w", err)
+			}
+			fmt.Printf("✓ Folder and data deleted: %s\n", exportPath)
+		} else {
+			fmt.Println("Deletion cancelled. Folder preserved.")
+		}
+	} else {
+		fmt.Println("Folder preserved.")
+	}
+
 	return nil
 }
 
