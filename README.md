@@ -58,7 +58,7 @@ sudo sambo version
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/sambo.git
+git clone https://github.com/winterweken/sambo.git
 cd sambo
 
 # Build the binary
