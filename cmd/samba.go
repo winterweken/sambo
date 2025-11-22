@@ -3,6 +3,7 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"os"
 	"sambo/pkg/samba"
 )
 
@@ -94,7 +95,32 @@ func sambaCreate(args []string) error {
 		return fmt.Errorf("failed to create samba share: %w", err)
 	}
 
-	fmt.Printf("Samba share '%s' created successfully\n", *name)
+	fmt.Printf("Samba share '%s' created successfully\n\n", *name)
+
+	// Get hostname for mount examples
+	hostname, _ := getHostname()
+
+	fmt.Println("Mount this share on a client with:")
+	fmt.Println("──────────────────────────────────────────────────────────")
+	fmt.Printf("# Temporary mount:\n")
+	if *validUsers != "" {
+		fmt.Printf("sudo mount -t cifs //%s/%s /mnt/%s -o username=<user>,password=<pass>\n\n", hostname, *name, *name)
+	} else {
+		fmt.Printf("sudo mount -t cifs //%s/%s /mnt/%s -o guest\n\n", hostname, *name, *name)
+	}
+
+	fmt.Printf("# Or use sambo to mount:\n")
+	if *validUsers != "" {
+		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username <user> -password <pass>\n\n", hostname, *name, *name)
+		fmt.Printf("# For persistent mount (survives reboot):\n")
+		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username <user> -password <pass> -persistent\n", hostname, *name, *name)
+	} else {
+		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username guest -password \"\"\n\n", hostname, *name, *name)
+		fmt.Printf("# For persistent mount (survives reboot):\n")
+		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username guest -password \"\" -persistent\n", hostname, *name, *name)
+	}
+	fmt.Println("──────────────────────────────────────────────────────────")
+
 	return nil
 }
 
@@ -230,4 +256,12 @@ func parseCSV(s string) []string {
 		result = append(result, current)
 	}
 	return result
+}
+
+func getHostname() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "server", nil // fallback to generic name
+	}
+	return hostname, nil
 }

@@ -200,7 +200,6 @@ func Modify(path string, updates map[string]interface{}) error {
 
 func parseExportLine(line string) *Export {
 	// Format: /path client(options) or /path client1(options) client2(options)
-	// For simplicity, we'll handle single client specs
 	parts := strings.Fields(line)
 	if len(parts) < 2 {
 		return nil
@@ -208,21 +207,28 @@ func parseExportLine(line string) *Export {
 
 	path := parts[0]
 
-	// Parse client and options
-	clientPart := parts[1]
-	clientsOptions := strings.SplitN(clientPart, "(", 2)
+	// Parse all client specifications (everything after the path)
+	// Multiple clients can be listed with their own options
+	var allClients []string
+	var firstOptions string
 
-	clients := clientsOptions[0]
-	options := ""
+	for i := 1; i < len(parts); i++ {
+		clientPart := parts[i]
+		clientsOptions := strings.SplitN(clientPart, "(", 2)
 
-	if len(clientsOptions) == 2 {
-		options = strings.TrimSuffix(clientsOptions[1], ")")
+		client := clientsOptions[0]
+		allClients = append(allClients, client)
+
+		// Store options from the first client spec
+		if i == 1 && len(clientsOptions) == 2 {
+			firstOptions = strings.TrimSuffix(clientsOptions[1], ")")
+		}
 	}
 
 	return &Export{
 		Path:    path,
-		Clients: clients,
-		Options: options,
+		Clients: strings.Join(allClients, " "),
+		Options: firstOptions,
 	}
 }
 

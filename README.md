@@ -616,4 +616,4 @@ Feel free to submit issues and enhancement requests!
 
 ## Version
 
-v1.4.0
+v1.5.1
