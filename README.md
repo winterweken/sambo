@@ -41,12 +41,12 @@ sudo mv sambo-linux-amd64 /usr/local/bin/sambo
 sudo chmod +x /usr/local/bin/sambo
 
 # For ARM64 (Raspberry Pi 4, AWS Graviton, etc.)
-wget https://github.com/YOUR_USERNAME/sambo/releases/latest/download/sambo-linux-arm64
+wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-arm64
 sudo mv sambo-linux-arm64 /usr/local/bin/sambo
 sudo chmod +x /usr/local/bin/sambo
 
 # For ARM (Raspberry Pi 3 and older)
-wget https://github.com/YOUR_USERNAME/sambo/releases/latest/download/sambo-linux-arm
+wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-arm
 sudo mv sambo-linux-arm /usr/local/bin/sambo
 sudo chmod +x /usr/local/bin/sambo
 
