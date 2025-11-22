@@ -61,6 +61,11 @@ func nfsList() error {
 }
 
 func nfsCreate(args []string) error {
+	// Check if NFS is installed
+	if err := nfs.CheckInstalled(); err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("nfs create", flag.ExitOnError)
 	path := fs.String("path", "", "Export path (required)")
 	clients := fs.String("clients", "*", "Client specification (IP, CIDR, or hostname)")

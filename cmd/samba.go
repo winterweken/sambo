@@ -66,6 +66,11 @@ func sambaList() error {
 }
 
 func sambaCreate(args []string) error {
+	// Check if Samba is installed
+	if err := samba.CheckInstalled(); err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("samba create", flag.ExitOnError)
 	name := fs.String("name", "", "Share name (required)")
 	path := fs.String("path", "", "Share path (required)")
