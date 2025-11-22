@@ -22,7 +22,7 @@ func Execute() error {
 		printUsage()
 		return nil
 	case "version", "-v", "--version":
-		fmt.Println("sambo v1.0.0 - Linux Share Management CLI")
+		fmt.Println("sambo v1.5.0 - Linux Share Management CLI")
 		return nil
 	}
 

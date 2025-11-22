@@ -1,7 +1,7 @@
 # Makefile for Sambo - Linux Share Management CLI
 
 BINARY_NAME=sambo
-VERSION=1.0.0
+VERSION=1.5.0
 BUILD_DIR=build
 INSTALL_PATH=/usr/local/bin
 
