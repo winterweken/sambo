@@ -219,21 +219,26 @@ func (m model) viewMountList() string {
 
 	// Table header
 	s += tableHeaderStyle.Render(
-		fmt.Sprintf("%-8s %-30s %-25s %-12s",
-			"Type", "Source", "Mount Point", "Persistent"),
+		fmt.Sprintf("%-8s %-28s %-22s %-10s %-10s",
+			"Type", "Source", "Mount Point", "Active", "Persistent"),
 	) + "\n"
 
 	// Table rows
 	for i, mnt := range mounts {
+		active := "No"
+		if mnt.Active {
+			active = "Yes"
+		}
 		persistent := "No"
 		if mnt.Persistent {
 			persistent = "Yes"
 		}
 
-		row := fmt.Sprintf("%-8s %-30s %-25s %-12s",
+		row := fmt.Sprintf("%-8s %-28s %-22s %-10s %-10s",
 			strings.ToUpper(string(mnt.Type)),
-			truncate(mnt.Source, 30),
-			truncate(mnt.MountPoint, 25),
+			truncate(mnt.Source, 28),
+			truncate(mnt.MountPoint, 22),
+			active,
 			persistent,
 		)
 
