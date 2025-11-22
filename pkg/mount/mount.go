@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"strings"
 )
 
@@ -226,8 +227,12 @@ func MountCIFS(source, mountPoint, options string, persistent bool) error {
 	}
 
 	// Ensure mount point exists
-	if err := os.MkdirAll(mountPoint, 0755); err != nil {
-		return fmt.Errorf("failed to create mount point: %w", err)
+	mountPointCreated := false
+	if _, err := os.Stat(mountPoint); os.IsNotExist(err) {
+		if err := os.MkdirAll(mountPoint, 0755); err != nil {
+			return fmt.Errorf("failed to create mount point: %w", err)
+		}
+		mountPointCreated = true
 	}
 
 	// Build mount command
@@ -239,13 +244,27 @@ func MountCIFS(source, mountPoint, options string, persistent bool) error {
 
 	cmd := exec.Command("mount", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
+		// Cleanup mount point if we created it and mount failed
+		if mountPointCreated {
+			os.Remove(mountPoint)
+		}
 		return fmt.Errorf("failed to mount: %s: %w", string(output), err)
+	}
+
+	// Verify mount succeeded
+	if !isMountActive(mountPoint) {
+		if mountPointCreated {
+			os.Remove(mountPoint)
+		}
+		return fmt.Errorf("mount command succeeded but mount point is not active")
 	}
 
 	// Add to fstab if persistent
 	if persistent {
 		if err := addToFstab(source, mountPoint, "cifs", options); err != nil {
-			return fmt.Errorf("mounted successfully but failed to add to fstab: %w", err)
+			// Mount is active but couldn't persist - warn but don't fail
+			fmt.Fprintf(os.Stderr, "Warning: mounted successfully but failed to add to fstab: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Mount is active but will not persist across reboots.\n")
 		}
 	}
 
@@ -261,8 +280,12 @@ func MountNFS(source, mountPoint, options string, persistent bool) error {
 	}
 
 	// Ensure mount point exists
-	if err := os.MkdirAll(mountPoint, 0755); err != nil {
-		return fmt.Errorf("failed to create mount point: %w", err)
+	mountPointCreated := false
+	if _, err := os.Stat(mountPoint); os.IsNotExist(err) {
+		if err := os.MkdirAll(mountPoint, 0755); err != nil {
+			return fmt.Errorf("failed to create mount point: %w", err)
+		}
+		mountPointCreated = true
 	}
 
 	// Build mount command
@@ -274,13 +297,27 @@ func MountNFS(source, mountPoint, options string, persistent bool) error {
 
 	cmd := exec.Command("mount", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
+		// Cleanup mount point if we created it and mount failed
+		if mountPointCreated {
+			os.Remove(mountPoint)
+		}
 		return fmt.Errorf("failed to mount: %s: %w", string(output), err)
+	}
+
+	// Verify mount succeeded
+	if !isMountActive(mountPoint) {
+		if mountPointCreated {
+			os.Remove(mountPoint)
+		}
+		return fmt.Errorf("mount command succeeded but mount point is not active")
 	}
 
 	// Add to fstab if persistent
 	if persistent {
 		if err := addToFstab(source, mountPoint, "nfs", options); err != nil {
-			return fmt.Errorf("mounted successfully but failed to add to fstab: %w", err)
+			// Mount is active but couldn't persist - warn but don't fail
+			fmt.Fprintf(os.Stderr, "Warning: mounted successfully but failed to add to fstab: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Mount is active but will not persist across reboots.\n")
 		}
 	}
 
@@ -295,23 +332,71 @@ func Unmount(mountPoint string, removePersistent bool) error {
 		return err
 	}
 
+	// Only try to unmount if currently active
+	if !mount.Active {
+		// If not active but still in fstab, just remove from fstab
+		if removePersistent && mount.Persistent {
+			if err := removeFromFstab(mount.Source, mountPoint); err != nil {
+				return fmt.Errorf("failed to remove from fstab: %w", err)
+			}
+		}
+		return nil
+	}
+
 	// Unmount
 	cmd := exec.Command("umount", mountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to unmount: %s: %w", string(output), err)
 	}
 
+	// Verify unmount succeeded
+	if isMountActive(mountPoint) {
+		return fmt.Errorf("umount command succeeded but mount is still active")
+	}
+
 	// Remove from fstab if requested
 	if removePersistent && mount.Persistent {
 		if err := removeFromFstab(mount.Source, mountPoint); err != nil {
-			return fmt.Errorf("unmounted successfully but failed to remove from fstab: %w", err)
+			// Unmount succeeded but couldn't remove from fstab - warn but don't fail
+			fmt.Fprintf(os.Stderr, "Warning: unmounted successfully but failed to remove from fstab: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Mount will reappear after reboot unless manually removed from /etc/fstab.\n")
 		}
+	}
+
+	// Try to remove mount point directory if empty
+	if entries, err := os.ReadDir(mountPoint); err == nil && len(entries) == 0 {
+		os.Remove(mountPoint)
 	}
 
 	return nil
 }
 
 // Helper functions
+
+func getCurrentUser() (uid, gid string, err error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get current user: %w", err)
+	}
+	return currentUser.Uid, currentUser.Gid, nil
+}
+
+func isMountActive(mountPoint string) bool {
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && fields[1] == mountPoint {
+			return true
+		}
+	}
+	return false
+}
 
 func isInFstab(source, mountPoint string) bool {
 	file, err := os.Open(fstabPath)
@@ -361,7 +446,12 @@ func addToFstab(source, mountPoint, fsType, options string) error {
 	// Default options if not specified
 	if options == "" {
 		if fsType == "cifs" {
-			options = "credentials=/root/.smbcredentials,uid=1000,gid=1000"
+			uid, gid, err := getCurrentUser()
+			if err != nil {
+				// Fallback to root if we can't determine current user
+				uid, gid = "0", "0"
+			}
+			options = fmt.Sprintf("credentials=/root/.smbcredentials,uid=%s,gid=%s", uid, gid)
 		} else {
 			options = "defaults"
 		}
