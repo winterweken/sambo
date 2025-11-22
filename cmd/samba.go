@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sambo/pkg/samba"
 )
 
@@ -134,11 +136,49 @@ func sambaRemove(args []string) error {
 		return fmt.Errorf("name is required")
 	}
 
+	// Get share info to find the path
+	share, err := samba.Get(*name)
+	if err != nil {
+		return fmt.Errorf("failed to get samba share: %w", err)
+	}
+
+	sharePath := share.Path
+
+	// Remove the share configuration
 	if err := samba.Remove(*name); err != nil {
 		return fmt.Errorf("failed to remove samba share: %w", err)
 	}
 
 	fmt.Printf("Samba share '%s' removed successfully\n", *name)
+
+	// Ask if user wants to delete the folder and data
+	fmt.Printf("\nThe share folder still exists at: %s\n", sharePath)
+	fmt.Print("Do you want to delete this folder and all its data? (y/N): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	if response == "y" || response == "yes" {
+		// Confirm the permanent deletion
+		fmt.Printf("\n⚠️  WARNING: This will permanently delete the folder and all data at:\n   %s\n", sharePath)
+		fmt.Print("Are you absolutely sure? Type 'DELETE' to confirm: ")
+
+		confirmation, _ := reader.ReadString('\n')
+		confirmation = strings.TrimSpace(confirmation)
+
+		if confirmation == "DELETE" {
+			if err := os.RemoveAll(sharePath); err != nil {
+				return fmt.Errorf("failed to delete folder: %w", err)
+			}
+			fmt.Printf("✓ Folder and data deleted: %s\n", sharePath)
+		} else {
+			fmt.Println("Deletion cancelled. Folder preserved.")
+		}
+	} else {
+		fmt.Println("Folder preserved.")
+	}
+
 	return nil
 }
 
