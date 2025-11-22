@@ -28,13 +28,65 @@ type Mount struct {
 	Type       MountType // cifs or nfs
 	Options    string    // mount options
 	Persistent bool      // whether it's in fstab
+	Active     bool      // whether it's currently mounted
 }
 
-// List returns all network mounts (CIFS and NFS)
+// List returns all network mounts from both /proc/mounts (active) and /etc/fstab (configured)
 func List() ([]Mount, error) {
+	mountMap := make(map[string]*Mount) // key: source + mountpoint
+
+	// First, read from /etc/fstab to get configured mounts
+	fstabMounts, err := readFstabMounts()
+	if err != nil {
+		// Don't fail if fstab doesn't exist or can't be read, just log and continue
+		fmt.Fprintf(os.Stderr, "Warning: failed to read fstab: %v\n", err)
+	} else {
+		for _, mount := range fstabMounts {
+			key := mount.Source + "|" + mount.MountPoint
+			mount.Persistent = true
+			mount.Active = false // Will be set to true if found in /proc/mounts
+			mountMap[key] = &mount
+		}
+	}
+
+	// Then, read from /proc/mounts to get currently active mounts
+	procMounts, err := readProcMounts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read proc mounts: %w", err)
+	}
+
+	for _, mount := range procMounts {
+		key := mount.Source + "|" + mount.MountPoint
+		existing, exists := mountMap[key]
+		if exists {
+			// Mount exists in fstab, mark it as active
+			existing.Active = true
+			// Update options from actual mount
+			if mount.Options != "" {
+				existing.Options = mount.Options
+			}
+		} else {
+			// Mount is active but not in fstab
+			mount.Persistent = false
+			mount.Active = true
+			mountMap[key] = &mount
+		}
+	}
+
+	// Convert map to slice
+	var mounts []Mount
+	for _, mount := range mountMap {
+		mounts = append(mounts, *mount)
+	}
+
+	return mounts, nil
+}
+
+// readProcMounts reads currently active mounts from /proc/mounts
+func readProcMounts() ([]Mount, error) {
 	file, err := os.Open("/proc/mounts")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read mounts: %w", err)
+		return nil, fmt.Errorf("failed to read /proc/mounts: %w", err)
 	}
 	defer file.Close()
 
@@ -71,7 +123,6 @@ func List() ([]Mount, error) {
 			Source:     fields[0],
 			MountPoint: fields[1],
 			Type:       MountType(normalizedType),
-			Persistent: isInFstab(fields[0], fields[1]),
 		}
 
 		if len(fields) >= 4 {
@@ -82,7 +133,69 @@ func List() ([]Mount, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading mounts: %w", err)
+		return nil, fmt.Errorf("error reading proc mounts: %w", err)
+	}
+
+	return mounts, nil
+}
+
+// readFstabMounts reads configured mounts from /etc/fstab
+func readFstabMounts() ([]Mount, error) {
+	file, err := os.Open(fstabPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var mounts []Mount
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip comments and empty lines
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+
+		source := fields[0]
+		mountPoint := fields[1]
+		fsType := fields[2]
+		options := fields[3]
+
+		// Check if this is a network mount
+		isNFS := strings.HasPrefix(fsType, "nfs")
+		isCIFS := fsType == "cifs" || fsType == "smb" || fsType == "smbfs"
+
+		if !isNFS && !isCIFS {
+			continue
+		}
+
+		// Normalize mount types
+		normalizedType := fsType
+		if isNFS {
+			normalizedType = "nfs"
+		} else if isCIFS {
+			normalizedType = "cifs"
+		}
+
+		mount := Mount{
+			Source:     source,
+			MountPoint: mountPoint,
+			Type:       MountType(normalizedType),
+			Options:    options,
+		}
+
+		mounts = append(mounts, mount)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
 	return mounts, nil
