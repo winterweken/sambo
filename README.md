@@ -166,6 +166,32 @@ sudo sambo samba modify -name myshare -comment "New description"
 sudo sambo samba remove -name myshare
 ```
 
+### Apple Time Machine Support
+
+Sambo includes built-in support for Apple Time Machine backups. When enabled, the share is automatically configured with the necessary VFS modules and settings:
+
+```bash
+# Using the TUI (recommended)
+sudo sambo tui
+# Select "Manage Samba Shares" → "Create Share"
+# Check the "Time Machine" checkbox
+
+# Using CLI (Time Machine support in CLI coming soon)
+# For now, use the TUI for Time Machine shares
+```
+
+**Time Machine Configuration:**
+- Automatically adds `vfs objects = catia fruit streams_xattr`
+- Enables `fruit:aapl = yes` for Apple file system support
+- Enables `fruit:time machine = yes` for Time Machine discovery
+- Sets default quota of 500GB (configurable in smb.conf)
+
+**Important Notes:**
+- The share path must exist and be writable
+- Users must be added with valid Samba passwords
+- macOS will discover the share automatically in Time Machine preferences
+- Recommended to use a dedicated share for Time Machine backups
+
 ## NFS Export Management
 
 ### List all NFS exports

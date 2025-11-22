@@ -61,10 +61,9 @@ type model struct {
 	message       string
 	messageType   string // "error", "success", ""
 
-	// For forms
-	formInputs    map[string]string
-	formFocus     int
-	formFields    []string
+	// Form state
+	form          *formModel
+	inForm        bool
 
 	// Data
 	selectedItem  string
@@ -74,7 +73,7 @@ func newModel() model {
 	return model{
 		currentScreen: screenMainMenu,
 		cursor:        0,
-		formInputs:    make(map[string]string),
+		inForm:        false,
 	}
 }
 
@@ -83,6 +82,17 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Delegate to form if we're in a form
+	if m.inForm && m.form != nil {
+		var cmd tea.Cmd
+		*m.form, cmd = m.form.Update(msg, &m)
+		// Check if form closed
+		if !m.inForm {
+			m.form = nil
+		}
+		return m, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -132,6 +142,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	// Show form if we're in a form
+	if m.inForm && m.form != nil {
+		return m.form.View()
+	}
+
 	switch m.currentScreen {
 	case screenMainMenu:
 		return m.viewMainMenu()
@@ -298,10 +313,18 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenSambaList
 		case 1:
 			m.currentScreen = screenSambaCreate
+			form := newSambaCreateForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
 		case 2:
 			m.currentScreen = screenSambaModify
 		case 3:
 			m.currentScreen = screenSambaRemove
+			form := newSambaRemoveForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
 		case 4:
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
@@ -313,10 +336,18 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenNFSList
 		case 1:
 			m.currentScreen = screenNFSCreate
+			form := newNFSCreateForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
 		case 2:
 			m.currentScreen = screenNFSModify
 		case 3:
 			m.currentScreen = screenNFSRemove
+			form := newNFSRemoveForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
 		case 4:
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
@@ -328,10 +359,22 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenUserList
 		case 1:
 			m.currentScreen = screenUserAdd
+			form := newUserAddForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
 		case 2:
 			m.currentScreen = screenUserPassword
+			form := newUserPasswordForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
 		case 3:
 			m.currentScreen = screenUserRemove
+			form := newUserRemoveForm()
+			m.form = &form
+			m.inForm = true
+			return m, m.form.Init()
 		case 4:
 			m.currentScreen = screenMainMenu
 			m.cursor = 0

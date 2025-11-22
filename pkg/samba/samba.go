@@ -15,12 +15,13 @@ const (
 
 // Share represents a Samba share configuration
 type Share struct {
-	Name       string
-	Path       string
-	Comment    string
-	ReadOnly   bool
-	Browseable bool
-	ValidUsers []string
+	Name        string
+	Path        string
+	Comment     string
+	ReadOnly    bool
+	Browseable  bool
+	ValidUsers  []string
+	TimeMachine bool
 }
 
 // List returns all configured Samba shares
@@ -169,6 +170,14 @@ func Create(share Share) error {
 
 	if len(share.ValidUsers) > 0 {
 		config += fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " "))
+	}
+
+	// Add Time Machine support if enabled
+	if share.TimeMachine {
+		config += "   vfs objects = catia fruit streams_xattr\n"
+		config += "   fruit:aapl = yes\n"
+		config += "   fruit:time machine = yes\n"
+		config += "   fruit:time machine max size = 500G\n"
 	}
 
 	if _, err := f.WriteString(config); err != nil {
