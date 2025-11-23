@@ -1103,6 +1103,10 @@ func (fm formModel) submitMountUnmount(parent *model) (formModel, tea.Cmd) {
 }
 
 func (fm formModel) View() string {
+	return fm.ViewWithMessage("", "")
+}
+
+func (fm formModel) ViewWithMessage(message, messageType string) string {
 	var b strings.Builder
 
 	// Title
@@ -1135,6 +1139,36 @@ func (fm formModel) View() string {
 	}
 
 	b.WriteString(titleStyle.Render(title) + "\n\n")
+
+	// Show message if present
+	if message != "" {
+		var messageStyle lipgloss.Style
+		switch messageType {
+		case "error":
+			messageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#CC0000", Dark: "#FF4444"}).
+				Background(lipgloss.AdaptiveColor{Light: "#FFE6E6", Dark: "#3A1A1A"}).
+				Bold(true).
+				Padding(0, 1).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#CC0000", Dark: "#FF4444"})
+		case "success":
+			messageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"}).
+				Background(lipgloss.AdaptiveColor{Light: "#E6FFE6", Dark: "#1A3A1A"}).
+				Bold(true).
+				Padding(0, 1).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"})
+		default:
+			messageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#0088CC", Dark: "#00AAFF"}).
+				Padding(0, 1).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#0088CC", Dark: "#00AAFF"})
+		}
+		b.WriteString(messageStyle.Render(" "+message+" ") + "\n\n")
+	}
 
 	// Form fields
 	for i, field := range fm.fields {

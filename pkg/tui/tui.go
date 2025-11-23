@@ -241,7 +241,7 @@ func (m model) View() string {
 
 	// Show form if we're in a form
 	if m.inForm && m.form != nil {
-		return m.form.View()
+		return m.form.ViewWithMessage(m.message, m.messageType)
 	}
 
 	switch m.currentScreen {
