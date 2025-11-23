@@ -108,6 +108,7 @@ func (m model) viewSambaList() string {
 	}
 
 	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
@@ -150,6 +151,7 @@ func (m model) viewNFSList() string {
 	}
 
 	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
@@ -197,6 +199,7 @@ func (m model) viewUserList() string {
 	}
 
 	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
@@ -259,6 +262,7 @@ func (m model) viewMountList() string {
 	}
 
 	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
