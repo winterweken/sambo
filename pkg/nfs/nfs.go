@@ -15,9 +15,35 @@ const (
 
 // CheckInstalled verifies that NFS server is installed and configured
 func CheckInstalled() error {
+	return CheckInstalledInteractive(true)
+}
+
+// CheckInstalledInteractive verifies that NFS server is installed and optionally offers to install it
+func CheckInstalledInteractive(interactive bool) error {
 	// Check if exportfs binary exists
 	if _, err := exec.LookPath("exportfs"); err != nil {
-		return fmt.Errorf("NFS server is not installed.\n\nPlease install NFS server:\n  Debian/Ubuntu: sudo apt-get install nfs-kernel-server\n  RHEL/CentOS:   sudo yum install nfs-utils\n  Arch:          sudo pacman -S nfs-utils")
+		if !interactive {
+			return fmt.Errorf("NFS server is not installed.\n\nPlease install NFS server:\n  Debian/Ubuntu: sudo apt-get install nfs-kernel-server\n  RHEL/CentOS:   sudo yum install nfs-utils\n  Arch:          sudo pacman -S nfs-utils")
+		}
+
+		// Offer to install
+		fmt.Println("NFS server is not installed.")
+		fmt.Print("Would you like to install it now? (y/N): ")
+
+		var response string
+		fmt.Scanln(&response)
+		response = strings.ToLower(strings.TrimSpace(response))
+
+		if response != "y" && response != "yes" {
+			return fmt.Errorf("NFS server installation cancelled")
+		}
+
+		// Detect package manager and install
+		if err := installNFS(); err != nil {
+			return fmt.Errorf("failed to install NFS server: %w", err)
+		}
+
+		fmt.Println("✓ NFS server installed successfully")
 	}
 
 	// Check if exports file exists, create if missing
@@ -26,6 +52,40 @@ func CheckInstalled() error {
 		if err := os.WriteFile(exportsPath, []byte("# NFS exports\n"), 0644); err != nil {
 			return fmt.Errorf("NFS is installed but cannot create exports file: %w", err)
 		}
+		fmt.Println("✓ Created NFS exports file")
+	}
+
+	return nil
+}
+
+func installNFS() error {
+	var cmd *exec.Cmd
+
+	// Detect package manager and appropriate package name
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		fmt.Println("Installing NFS server using apt-get...")
+		cmd = exec.Command("apt-get", "install", "-y", "nfs-kernel-server")
+	} else if _, err := exec.LookPath("yum"); err == nil {
+		fmt.Println("Installing NFS server using yum...")
+		cmd = exec.Command("yum", "install", "-y", "nfs-utils")
+	} else if _, err := exec.LookPath("dnf"); err == nil {
+		fmt.Println("Installing NFS server using dnf...")
+		cmd = exec.Command("dnf", "install", "-y", "nfs-utils")
+	} else if _, err := exec.LookPath("pacman"); err == nil {
+		fmt.Println("Installing NFS server using pacman...")
+		cmd = exec.Command("pacman", "-S", "--noconfirm", "nfs-utils")
+	} else if _, err := exec.LookPath("zypper"); err == nil {
+		fmt.Println("Installing NFS server using zypper...")
+		cmd = exec.Command("zypper", "install", "-y", "nfs-kernel-server")
+	} else {
+		return fmt.Errorf("could not detect package manager.\n\nPlease install NFS server manually:\n  Debian/Ubuntu: sudo apt-get install nfs-kernel-server\n  RHEL/CentOS:   sudo yum install nfs-utils\n  Arch:          sudo pacman -S nfs-utils")
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return err
 	}
 
 	return nil
