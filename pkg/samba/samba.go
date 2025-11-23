@@ -91,6 +91,8 @@ func List() ([]Share, error) {
 				if value != "" {
 					currentShare.ValidUsers = strings.Fields(value)
 				}
+			case "fruit:time machine":
+				currentShare.TimeMachine = strings.ToLower(value) == "yes"
 			}
 		}
 	}
@@ -136,6 +138,13 @@ func Create(share Share) error {
 		return fmt.Errorf("path '%s' does not exist", share.Path)
 	}
 
+	// If Time Machine is enabled, ensure global config is set up
+	if share.TimeMachine {
+		if err := EnsureTimeMachineGlobalConfig(); err != nil {
+			return fmt.Errorf("failed to configure Time Machine global settings: %w", err)
+		}
+	}
+
 	// Backup config
 	if err := backupConfig(); err != nil {
 		return err
@@ -175,6 +184,13 @@ func Create(share Share) error {
 	// Add Time Machine support if enabled
 	if share.TimeMachine {
 		config += "   vfs objects = catia fruit streams_xattr\n"
+		config += "   fruit:metadata = stream\n"
+		config += "   fruit:model = MacSamba\n"
+		config += "   fruit:veto_appledouble = no\n"
+		config += "   fruit:posix_rename = yes\n"
+		config += "   fruit:zero_file_id = yes\n"
+		config += "   fruit:wipe_intentionally_left_blank_rfork = yes\n"
+		config += "   fruit:delete_empty_adfiles = yes\n"
 		config += "   fruit:aapl = yes\n"
 		config += "   fruit:time machine = yes\n"
 		config += "   fruit:time machine max size = 500G\n"
@@ -344,5 +360,99 @@ func reloadSamba() error {
 			return fmt.Errorf("failed to reload samba: %w", err)
 		}
 	}
+	return nil
+}
+
+// EnsureTimeMachineGlobalConfig checks and adds necessary global configuration for Time Machine
+func EnsureTimeMachineGlobalConfig() error {
+	content, err := os.ReadFile(sambaConfPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+
+	configStr := string(content)
+	lines := strings.Split(configStr, "\n")
+
+	// Check if Time Machine global settings already exist
+	hasMinProtocol := strings.Contains(configStr, "min protocol")
+	hasEASupport := strings.Contains(configStr, "ea support")
+	hasVFSObjects := strings.Contains(configStr, "vfs objects") && strings.Contains(configStr, "[global]")
+
+	// If all settings exist, no need to modify
+	if hasMinProtocol && hasEASupport && hasVFSObjects {
+		return nil
+	}
+
+	// Backup config
+	if err := backupConfig(); err != nil {
+		return err
+	}
+
+	// Find [global] section and add missing settings
+	var newLines []string
+	inGlobal := false
+	globalSettingsAdded := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Check if we're entering global section
+		if trimmed == "[global]" {
+			inGlobal = true
+			newLines = append(newLines, line)
+			continue
+		}
+
+		// Check if we're leaving global section
+		if inGlobal && strings.HasPrefix(trimmed, "[") && trimmed != "[global]" {
+			// Add settings before leaving global section
+			if !globalSettingsAdded {
+				if !hasMinProtocol {
+					newLines = append(newLines, "   min protocol = SMB2")
+				}
+				if !hasEASupport {
+					newLines = append(newLines, "   ea support = yes")
+				}
+				if !hasVFSObjects {
+					newLines = append(newLines, "   vfs objects = catia fruit streams_xattr")
+				}
+				globalSettingsAdded = true
+			}
+			inGlobal = false
+		}
+
+		newLines = append(newLines, line)
+
+		// If we're at the end of global section (next line is a new section or end of file)
+		if inGlobal && !globalSettingsAdded {
+			// Check if next line is a section header or we're at the end
+			if i+1 >= len(lines) || (strings.HasPrefix(strings.TrimSpace(lines[i+1]), "[") && strings.TrimSpace(lines[i+1]) != "[global]") {
+				if !hasMinProtocol {
+					newLines = append(newLines, "   min protocol = SMB2")
+				}
+				if !hasEASupport {
+					newLines = append(newLines, "   ea support = yes")
+				}
+				if !hasVFSObjects {
+					newLines = append(newLines, "   vfs objects = catia fruit streams_xattr")
+				}
+				globalSettingsAdded = true
+			}
+		}
+	}
+
+	// Write updated config
+	newContent := strings.Join(newLines, "\n")
+	if err := os.WriteFile(sambaConfPath, []byte(newContent), 0644); err != nil {
+		restoreConfig()
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	// Test configuration
+	if err := testConfig(); err != nil {
+		restoreConfig()
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
 	return nil
 }
