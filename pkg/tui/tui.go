@@ -128,6 +128,7 @@ const (
 	screenUserAdd
 	screenUserPassword
 	screenUserRemove
+	screenDependencies
 )
 
 type model struct {
@@ -184,6 +185,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case installMsg:
+		return m.handleInstallMsg(msg)
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -265,6 +269,8 @@ func (m model) View() string {
 		return m.viewUserMenu()
 	case screenUserList:
 		return m.viewUserList()
+	case screenDependencies:
+		return m.viewDependencies()
 	default:
 		return "Under construction...\n\nPress ESC to go back"
 	}
@@ -297,6 +303,7 @@ func (m model) viewMainMenu() string {
 		"🌐 Manage NFS Exports",
 		"💾 Manage Network Mounts",
 		"👤 Manage Users",
+		"🔧 Check & Install Dependencies",
 		"🚪 Exit",
 	}
 
@@ -438,11 +445,13 @@ func (m model) viewUserMenu() string {
 func (m model) getMaxCursor() int {
 	switch m.currentScreen {
 	case screenMainMenu:
-		return 4
+		return 5 // 6 items including Dependencies (0-5)
 	case screenSambaMenu, screenNFSMenu, screenUserMenu:
 		return 4
 	case screenMountMenu:
-		return 5 // 6 items (0-5)
+		return 5 // 6 items including Discover (0-5)
+	case screenDependencies:
+		return 4
 	default:
 		return 0
 	}
@@ -465,6 +474,9 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenUserMenu
 			m.cursor = 0
 		case 4:
+			m.currentScreen = screenDependencies
+			m.cursor = 0
+		case 5:
 			return m, tea.Quit
 		}
 
@@ -594,6 +606,9 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
 		}
+
+	case screenDependencies:
+		return m.handleDependenciesEnter()
 	}
 
 	return m, nil

@@ -20,7 +20,9 @@
       "Bash(gh auth status:*)",
       "Bash(gh auth login:*)",
       "Bash(gh release delete:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(git rebase:*)",
+      "Bash(GIT_EDITOR=true git rebase:*)"
     ],
     "deny": [],
     "ask": []
