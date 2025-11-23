@@ -178,21 +178,37 @@ sudo sambo tui
 # Select "Manage Samba Shares" → "Create Share"
 # Check the "Time Machine" checkbox
 
-# Using CLI (Time Machine support in CLI coming soon)
-# For now, use the TUI for Time Machine shares
+# Using CLI
+sudo sambo samba create \
+  -name timemachine \
+  -path /mnt/backup/timemachine \
+  -timemachine \
+  -comment "Time Machine Backup"
 ```
 
 **Time Machine Configuration:**
-- Automatically adds `vfs objects = catia fruit streams_xattr`
-- Enables `fruit:aapl = yes` for Apple file system support
-- Enables `fruit:time machine = yes` for Time Machine discovery
-- Sets default quota of 500GB (configurable in smb.conf)
+
+Sambo automatically configures both global and share-level settings:
+
+*Global Samba settings (added automatically):*
+- `min protocol = SMB2` - Required for macOS compatibility
+- `ea support = yes` - Extended attributes support
+- `vfs objects = catia fruit streams_xattr` - macOS file system modules
+
+*Share-level settings:*
+- `fruit:metadata = stream` - Metadata handling
+- `fruit:model = MacSamba` - Identifies as Mac-compatible server
+- `fruit:aapl = yes` - Apple file system support
+- `fruit:time machine = yes` - Time Machine discovery
+- `fruit:time machine max size = 500G` - Default quota (configurable in smb.conf)
+- Additional fruit module optimizations for macOS compatibility
 
 **Important Notes:**
 - The share path must exist and be writable
-- Users must be added with valid Samba passwords
+- Users must be added with valid Samba passwords (`sambo user add`)
 - macOS will discover the share automatically in Time Machine preferences
 - Recommended to use a dedicated share for Time Machine backups
+- Requires Samba 4.8 or newer for full Time Machine support
 
 ## NFS Export Management
 

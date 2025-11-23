@@ -51,13 +51,14 @@ func sambaList() error {
 	fmt.Println("Samba Shares:")
 	fmt.Println("──────────────────────────────────────────────────────────")
 	for _, share := range shares {
-		fmt.Printf("Name:        %s\n", share.Name)
-		fmt.Printf("Path:        %s\n", share.Path)
-		fmt.Printf("Comment:     %s\n", share.Comment)
-		fmt.Printf("Read Only:   %t\n", share.ReadOnly)
-		fmt.Printf("Browseable:  %t\n", share.Browseable)
+		fmt.Printf("Name:         %s\n", share.Name)
+		fmt.Printf("Path:         %s\n", share.Path)
+		fmt.Printf("Comment:      %s\n", share.Comment)
+		fmt.Printf("Read Only:    %t\n", share.ReadOnly)
+		fmt.Printf("Browseable:   %t\n", share.Browseable)
+		fmt.Printf("Time Machine: %t\n", share.TimeMachine)
 		if len(share.ValidUsers) > 0 {
-			fmt.Printf("Valid Users: %v\n", share.ValidUsers)
+			fmt.Printf("Valid Users:  %v\n", share.ValidUsers)
 		}
 		fmt.Println("──────────────────────────────────────────────────────────")
 	}
@@ -73,6 +74,7 @@ func sambaCreate(args []string) error {
 	readOnly := fs.Bool("readonly", false, "Make share read-only")
 	browseable := fs.Bool("browseable", true, "Make share browseable")
 	validUsers := fs.String("users", "", "Comma-separated list of valid users")
+	timeMachine := fs.Bool("timemachine", false, "Enable Apple Time Machine support")
 
 	fs.Parse(args)
 
@@ -82,11 +84,12 @@ func sambaCreate(args []string) error {
 	}
 
 	share := samba.Share{
-		Name:       *name,
-		Path:       *path,
-		Comment:    *comment,
-		ReadOnly:   *readOnly,
-		Browseable: *browseable,
+		Name:        *name,
+		Path:        *path,
+		Comment:     *comment,
+		ReadOnly:    *readOnly,
+		Browseable:  *browseable,
+		TimeMachine: *timeMachine,
 	}
 
 	if *validUsers != "" {
@@ -178,13 +181,14 @@ func sambaShow(args []string) error {
 		return fmt.Errorf("failed to get samba share: %w", err)
 	}
 
-	fmt.Printf("Name:        %s\n", share.Name)
-	fmt.Printf("Path:        %s\n", share.Path)
-	fmt.Printf("Comment:     %s\n", share.Comment)
-	fmt.Printf("Read Only:   %t\n", share.ReadOnly)
-	fmt.Printf("Browseable:  %t\n", share.Browseable)
+	fmt.Printf("Name:         %s\n", share.Name)
+	fmt.Printf("Path:         %s\n", share.Path)
+	fmt.Printf("Comment:      %s\n", share.Comment)
+	fmt.Printf("Read Only:    %t\n", share.ReadOnly)
+	fmt.Printf("Browseable:   %t\n", share.Browseable)
+	fmt.Printf("Time Machine: %t\n", share.TimeMachine)
 	if len(share.ValidUsers) > 0 {
-		fmt.Printf("Valid Users: %v\n", share.ValidUsers)
+		fmt.Printf("Valid Users:  %v\n", share.ValidUsers)
 	}
 
 	return nil
@@ -210,10 +214,12 @@ CREATE/MODIFY OPTIONS:
     -readonly                   Make share read-only (default: false)
     -browseable                 Make share browseable (default: true)
     -users <user1,user2>        Comma-separated list of valid users
+    -timemachine                Enable Apple Time Machine support (default: false)
 
 EXAMPLES:
     sambo samba list
     sambo samba create -name docs -path /mnt/documents -comment "Document Share"
+    sambo samba create -name backup -path /mnt/backup -timemachine -comment "Time Machine Backup"
     sambo samba create -name private -path /mnt/private -users alice,bob -readonly
     sambo samba modify -name docs -users alice,bob,charlie
     sambo samba remove -name docs
