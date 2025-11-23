@@ -270,6 +270,25 @@ func (m model) View() string {
 	}
 }
 
+// Helper function to render messages
+func (m model) renderMessage() string {
+	if m.message == "" {
+		return ""
+	}
+
+	prefix := "\n\n"
+	switch m.messageType {
+	case "error":
+		return prefix + errorStyle.Render(" ✗ "+m.message+" ")
+	case "success":
+		return prefix + successStyle.Render(" ✓ "+m.message+" ")
+	case "warning":
+		return prefix + warningStyle.Render(" ⚠ "+m.message+" ")
+	default:
+		return prefix + infoStyle.Render(" ℹ "+m.message+" ")
+	}
+}
+
 func (m model) viewMainMenu() string {
 	s := titleStyle.Render(" Sambo - Linux Share Management ") + "\n\n"
 
@@ -294,19 +313,7 @@ func (m model) viewMainMenu() string {
 
 	s += menuBoxStyle.Render(menuContent)
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • Q: Quit")
-
-	if m.message != "" {
-		s += "\n\n"
-		if m.messageType == "error" {
-			s += errorStyle.Render(" ✗ " + m.message + " ")
-		} else if m.messageType == "success" {
-			s += successStyle.Render(" ✓ " + m.message + " ")
-		} else if m.messageType == "warning" {
-			s += warningStyle.Render(" ⚠ " + m.message + " ")
-		} else {
-			s += infoStyle.Render(" ℹ " + m.message + " ")
-		}
-	}
+	s += m.renderMessage()
 
 	return s + "\n"
 }
@@ -335,6 +342,7 @@ func (m model) viewSambaMenu() string {
 
 	s += menuBoxStyle.Render(menuContent)
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
@@ -363,6 +371,7 @@ func (m model) viewNFSMenu() string {
 
 	s += menuBoxStyle.Render(menuContent)
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
@@ -392,6 +401,7 @@ func (m model) viewMountMenu() string {
 
 	s += menuBoxStyle.Render(menuContent)
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
@@ -420,6 +430,7 @@ func (m model) viewUserMenu() string {
 
 	s += menuBoxStyle.Render(menuContent)
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
 
 	return s + "\n"
 }
