@@ -15,9 +15,35 @@ const (
 
 // CheckInstalled verifies that Samba is installed and configured
 func CheckInstalled() error {
+	return CheckInstalledInteractive(true)
+}
+
+// CheckInstalledInteractive verifies that Samba is installed and optionally offers to install it
+func CheckInstalledInteractive(interactive bool) error {
 	// Check if smbd binary exists
 	if _, err := exec.LookPath("smbd"); err != nil {
-		return fmt.Errorf("Samba is not installed.\n\nPlease install Samba:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
+		if !interactive {
+			return fmt.Errorf("Samba is not installed.\n\nPlease install Samba:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
+		}
+
+		// Offer to install
+		fmt.Println("Samba is not installed.")
+		fmt.Print("Would you like to install it now? (y/N): ")
+
+		var response string
+		fmt.Scanln(&response)
+		response = strings.ToLower(strings.TrimSpace(response))
+
+		if response != "y" && response != "yes" {
+			return fmt.Errorf("Samba installation cancelled")
+		}
+
+		// Detect package manager and install
+		if err := installSamba(); err != nil {
+			return fmt.Errorf("failed to install Samba: %w", err)
+		}
+
+		fmt.Println("✓ Samba installed successfully")
 	}
 
 	// Check if config file exists, create if missing
@@ -39,6 +65,40 @@ func CheckInstalled() error {
 		if err := os.WriteFile(sambaConfPath, []byte(basicConfig), 0644); err != nil {
 			return fmt.Errorf("Samba is installed but cannot create config file: %w", err)
 		}
+		fmt.Println("✓ Created basic Samba configuration")
+	}
+
+	return nil
+}
+
+func installSamba() error {
+	var cmd *exec.Cmd
+
+	// Detect package manager
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		fmt.Println("Installing Samba using apt-get...")
+		cmd = exec.Command("apt-get", "install", "-y", "samba")
+	} else if _, err := exec.LookPath("yum"); err == nil {
+		fmt.Println("Installing Samba using yum...")
+		cmd = exec.Command("yum", "install", "-y", "samba")
+	} else if _, err := exec.LookPath("dnf"); err == nil {
+		fmt.Println("Installing Samba using dnf...")
+		cmd = exec.Command("dnf", "install", "-y", "samba")
+	} else if _, err := exec.LookPath("pacman"); err == nil {
+		fmt.Println("Installing Samba using pacman...")
+		cmd = exec.Command("pacman", "-S", "--noconfirm", "samba")
+	} else if _, err := exec.LookPath("zypper"); err == nil {
+		fmt.Println("Installing Samba using zypper...")
+		cmd = exec.Command("zypper", "install", "-y", "samba")
+	} else {
+		return fmt.Errorf("could not detect package manager.\n\nPlease install Samba manually:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return err
 	}
 
 	return nil
