@@ -70,9 +70,20 @@ func loadFstabEntries() map[string]bool {
 
 // List returns all network mounts (CIFS and NFS)
 func List() ([]Mount, error) {
+	// Try Linux /proc/mounts first
+	if mounts, err := listLinux(); err == nil {
+		return mounts, nil
+	}
+
+	// Fall back to macOS mount command
+	return listMacOS()
+}
+
+// listLinux reads mounts from /proc/mounts (Linux-specific)
+func listLinux() ([]Mount, error) {
 	file, err := os.Open("/proc/mounts")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read mounts: %w", err)
+		return nil, err
 	}
 	defer file.Close()
 
@@ -119,7 +130,70 @@ func List() ([]Mount, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading mounts: %w", err)
+		return nil, err
+	}
+
+	return mounts, nil
+}
+
+// listMacOS reads mounts using the mount command (macOS/BSD)
+func listMacOS() ([]Mount, error) {
+	cmd := exec.Command("mount")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run mount command: %w", err)
+	}
+
+	var mounts []Mount
+	lines := strings.Split(string(output), "\n")
+
+	for _, line := range lines {
+		// macOS mount output format: /dev/disk1s1 on /path (type, options)
+		// SMB format: //user@server/share on /path (smbfs, options)
+		// NFS format: server:/path on /local/path (nfs, options)
+
+		if !strings.Contains(line, " on ") {
+			continue
+		}
+
+		// Check if it's a network mount
+		isSMB := strings.Contains(line, "(smbfs") || strings.Contains(line, "(cifs")
+		isNFS := strings.Contains(line, "(nfs")
+
+		if !isSMB && !isNFS {
+			continue
+		}
+
+		parts := strings.SplitN(line, " on ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		source := parts[0]
+
+		// Extract mount point (everything before the parenthesis)
+		rest := parts[1]
+		parenIdx := strings.LastIndex(rest, " (")
+		if parenIdx == -1 {
+			continue
+		}
+
+		mountPoint := rest[:parenIdx]
+
+		mountType := TypeNFS
+		if isSMB {
+			mountType = TypeCIFS
+		}
+
+		mount := Mount{
+			Source:     source,
+			MountPoint: mountPoint,
+			Type:       mountType,
+			Active:     true,
+			Persistent: false, // macOS doesn't use fstab the same way
+		}
+
+		mounts = append(mounts, mount)
 	}
 
 	return mounts, nil
