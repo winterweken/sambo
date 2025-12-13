@@ -6,6 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"sambo/pkg/service"
+	"sambo/pkg/validate"
 )
 
 const (
@@ -166,6 +169,19 @@ func Get(path string) (*Export, error) {
 
 // Create adds a new NFS export
 func Create(export Export) error {
+	// Check if NFS service is available
+	service.WarnIfNotRunning("nfs")
+
+	// Validate path
+	if err := validate.Path(export.Path); err != nil {
+		return fmt.Errorf("invalid export path: %w", err)
+	}
+
+	// Validate clients
+	if err := validate.NFSClients(export.Clients); err != nil {
+		return fmt.Errorf("invalid clients: %w", err)
+	}
+
 	// Check if export already exists
 	existing, _ := Get(export.Path)
 	if existing != nil {

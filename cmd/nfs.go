@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
+
+	"sambo/pkg/confirm"
 	"sambo/pkg/nfs"
 )
 
@@ -61,11 +61,6 @@ func nfsList() error {
 }
 
 func nfsCreate(args []string) error {
-	// Check if NFS is installed
-	if err := nfs.CheckInstalled(); err != nil {
-		return err
-	}
-
 	fs := flag.NewFlagSet("nfs create", flag.ExitOnError)
 	path := fs.String("path", "", "Export path (required)")
 	clients := fs.String("clients", "*", "Client specification (IP, CIDR, or hostname)")
@@ -104,35 +99,20 @@ func nfsCreate(args []string) error {
 	}
 	options = append(options, "no_subtree_check")
 
-	export.Options = joinStrings(options, ",")
+	export.Options = strings.Join(options, ",")
 
 	if err := nfs.Create(export); err != nil {
 		return fmt.Errorf("failed to create nfs export: %w", err)
 	}
 
-	fmt.Printf("NFS export '%s' created successfully\n\n", *path)
-
-	// Get hostname for mount examples
-	hostname, _ := getHostname()
-
-	fmt.Println("Mount this export on a client with:")
-	fmt.Println("──────────────────────────────────────────────────────────")
-	fmt.Printf("# Temporary mount:\n")
-	fmt.Printf("sudo mount -t nfs %s:%s /mnt/nfs\n\n", hostname, *path)
-
-	fmt.Printf("# Or use sambo to mount:\n")
-	fmt.Printf("sudo sambo mount nfs -source %s:%s -mountpoint /mnt/nfs\n\n", hostname, *path)
-
-	fmt.Printf("# For persistent mount (survives reboot):\n")
-	fmt.Printf("sudo sambo mount nfs -source %s:%s -mountpoint /mnt/nfs -persistent\n", hostname, *path)
-	fmt.Println("──────────────────────────────────────────────────────────")
-
+	fmt.Printf("NFS export '%s' created successfully\n", *path)
 	return nil
 }
 
 func nfsRemove(args []string) error {
 	fs := flag.NewFlagSet("nfs remove", flag.ExitOnError)
 	path := fs.String("path", "", "Export path (required)")
+	yes := fs.Bool("y", false, "Skip confirmation prompt")
 	fs.Parse(args)
 
 	if *path == "" {
@@ -140,43 +120,17 @@ func nfsRemove(args []string) error {
 		return fmt.Errorf("path is required")
 	}
 
-	exportPath := *path
+	// Confirm deletion
+	if !confirm.Action(fmt.Sprintf("Remove NFS export '%s'?", *path), *yes) {
+		fmt.Println("Cancelled")
+		return nil
+	}
 
-	// Remove the NFS export configuration
 	if err := nfs.Remove(*path); err != nil {
 		return fmt.Errorf("failed to remove nfs export: %w", err)
 	}
 
 	fmt.Printf("NFS export '%s' removed successfully\n", *path)
-
-	// Ask if user wants to delete the folder and data
-	fmt.Printf("\nThe export folder still exists at: %s\n", exportPath)
-	fmt.Print("Do you want to delete this folder and all its data? (y/N): ")
-
-	reader := bufio.NewReader(os.Stdin)
-	response, _ := reader.ReadString('\n')
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	if response == "y" || response == "yes" {
-		// Confirm the permanent deletion
-		fmt.Printf("\n⚠️  WARNING: This will permanently delete the folder and all data at:\n   %s\n", exportPath)
-		fmt.Print("Are you absolutely sure? Type 'DELETE' to confirm: ")
-
-		confirmation, _ := reader.ReadString('\n')
-		confirmation = strings.TrimSpace(confirmation)
-
-		if confirmation == "DELETE" {
-			if err := os.RemoveAll(exportPath); err != nil {
-				return fmt.Errorf("failed to delete folder: %w", err)
-			}
-			fmt.Printf("✓ Folder and data deleted: %s\n", exportPath)
-		} else {
-			fmt.Println("Deletion cancelled. Folder preserved.")
-		}
-	} else {
-		fmt.Println("Folder preserved.")
-	}
-
 	return nil
 }
 
@@ -219,7 +173,7 @@ func nfsModify(args []string) error {
 	}
 	options = append(options, "no_subtree_check")
 
-	updates["options"] = joinStrings(options, ",")
+	updates["options"] = strings.Join(options, ",")
 
 	if err := nfs.Modify(*path, updates); err != nil {
 		return fmt.Errorf("failed to modify nfs export: %w", err)
@@ -280,13 +234,3 @@ EXAMPLES:
     sambo nfs show -path /mnt/backup`)
 }
 
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
-}

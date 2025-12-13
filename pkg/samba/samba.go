@@ -6,6 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"sambo/pkg/service"
+	"sambo/pkg/validate"
 )
 
 const (
@@ -216,6 +219,19 @@ func Get(name string) (*Share, error) {
 
 // Create adds a new Samba share
 func Create(share Share) error {
+	// Check if Samba service is available
+	service.WarnIfNotRunning("samba")
+
+	// Validate share name
+	if err := validate.ShareName(share.Name); err != nil {
+		return fmt.Errorf("invalid share name: %w", err)
+	}
+
+	// Validate path
+	if err := validate.Path(share.Path); err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+
 	// Check if share already exists
 	existing, _ := Get(share.Name)
 	if existing != nil {
@@ -359,7 +375,7 @@ func Remove(name string) error {
 	return reloadSamba()
 }
 
-// Modify updates an existing share
+// Modify updates an existing share using atomic replacement
 func Modify(name string, updates map[string]interface{}) error {
 	// Get current share
 	share, err := Get(name)
@@ -381,12 +397,96 @@ func Modify(name string, updates map[string]interface{}) error {
 		share.ValidUsers = validUsers
 	}
 
-	// Remove old share and create new one
-	if err := Remove(name); err != nil {
+	// Backup config first
+	if err := backupConfig(); err != nil {
 		return err
 	}
 
-	return Create(*share)
+	// Read entire config
+	content, err := os.ReadFile(sambaConfPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+
+	// Remove old share section from content
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	inShare := false
+	targetShare := "[" + name + "]"
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == targetShare {
+			inShare = true
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inShare = false
+		}
+
+		if !inShare {
+			newLines = append(newLines, line)
+		}
+	}
+
+	// Build new share configuration
+	config := fmt.Sprintf("\n[%s]\n", share.Name)
+	config += fmt.Sprintf("   path = %s\n", share.Path)
+
+	if share.Comment != "" {
+		config += fmt.Sprintf("   comment = %s\n", share.Comment)
+	}
+
+	if share.ReadOnly {
+		config += "   read only = yes\n"
+	} else {
+		config += "   read only = no\n"
+	}
+
+	if share.Browseable {
+		config += "   browseable = yes\n"
+	} else {
+		config += "   browseable = no\n"
+	}
+
+	if len(share.ValidUsers) > 0 {
+		config += fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " "))
+	}
+
+	if share.TimeMachine {
+		config += "   vfs objects = catia fruit streams_xattr\n"
+		config += "   fruit:aapl = yes\n"
+		config += "   fruit:time machine = yes\n"
+		config += "   fruit:time machine max size = 500G\n"
+	}
+
+	// Combine: existing content (minus old share) + new share config
+	newContent := strings.Join(newLines, "\n") + config
+
+	// Write to temp file first for atomic operation
+	tmpFile := sambaConfPath + ".tmp"
+	if err := os.WriteFile(tmpFile, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to write temp config: %w", err)
+	}
+
+	// Test configuration before applying
+	cmd := exec.Command("testparm", "-s", tmpFile)
+	if err := cmd.Run(); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Atomic rename
+	if err := os.Rename(tmpFile, sambaConfPath); err != nil {
+		os.Remove(tmpFile)
+		restoreConfig()
+		return fmt.Errorf("failed to apply config: %w", err)
+	}
+
+	// Reload Samba
+	return reloadSamba()
 }
 
 // Helper functions

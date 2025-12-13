@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
+
+	"sambo/pkg/confirm"
 	"sambo/pkg/samba"
 )
 
@@ -66,11 +66,6 @@ func sambaList() error {
 }
 
 func sambaCreate(args []string) error {
-	// Check if Samba is installed
-	if err := samba.CheckInstalled(); err != nil {
-		return err
-	}
-
 	fs := flag.NewFlagSet("samba create", flag.ExitOnError)
 	name := fs.String("name", "", "Share name (required)")
 	path := fs.String("path", "", "Share path (required)")
@@ -102,38 +97,14 @@ func sambaCreate(args []string) error {
 		return fmt.Errorf("failed to create samba share: %w", err)
 	}
 
-	fmt.Printf("Samba share '%s' created successfully\n\n", *name)
-
-	// Get hostname for mount examples
-	hostname, _ := getHostname()
-
-	fmt.Println("Mount this share on a client with:")
-	fmt.Println("──────────────────────────────────────────────────────────")
-	fmt.Printf("# Temporary mount:\n")
-	if *validUsers != "" {
-		fmt.Printf("sudo mount -t cifs //%s/%s /mnt/%s -o username=<user>,password=<pass>\n\n", hostname, *name, *name)
-	} else {
-		fmt.Printf("sudo mount -t cifs //%s/%s /mnt/%s -o guest\n\n", hostname, *name, *name)
-	}
-
-	fmt.Printf("# Or use sambo to mount:\n")
-	if *validUsers != "" {
-		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username <user> -password <pass>\n\n", hostname, *name, *name)
-		fmt.Printf("# For persistent mount (survives reboot):\n")
-		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username <user> -password <pass> -persistent\n", hostname, *name, *name)
-	} else {
-		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username guest -password \"\"\n\n", hostname, *name, *name)
-		fmt.Printf("# For persistent mount (survives reboot):\n")
-		fmt.Printf("sudo sambo mount cifs -source //%s/%s -mountpoint /mnt/%s -username guest -password \"\" -persistent\n", hostname, *name, *name)
-	}
-	fmt.Println("──────────────────────────────────────────────────────────")
-
+	fmt.Printf("Samba share '%s' created successfully\n", *name)
 	return nil
 }
 
 func sambaRemove(args []string) error {
 	fs := flag.NewFlagSet("samba remove", flag.ExitOnError)
 	name := fs.String("name", "", "Share name (required)")
+	yes := fs.Bool("y", false, "Skip confirmation prompt")
 	fs.Parse(args)
 
 	if *name == "" {
@@ -141,49 +112,17 @@ func sambaRemove(args []string) error {
 		return fmt.Errorf("name is required")
 	}
 
-	// Get share info to find the path
-	share, err := samba.Get(*name)
-	if err != nil {
-		return fmt.Errorf("failed to get samba share: %w", err)
+	// Confirm deletion
+	if !confirm.Action(fmt.Sprintf("Remove Samba share '%s'?", *name), *yes) {
+		fmt.Println("Cancelled")
+		return nil
 	}
 
-	sharePath := share.Path
-
-	// Remove the share configuration
 	if err := samba.Remove(*name); err != nil {
 		return fmt.Errorf("failed to remove samba share: %w", err)
 	}
 
 	fmt.Printf("Samba share '%s' removed successfully\n", *name)
-
-	// Ask if user wants to delete the folder and data
-	fmt.Printf("\nThe share folder still exists at: %s\n", sharePath)
-	fmt.Print("Do you want to delete this folder and all its data? (y/N): ")
-
-	reader := bufio.NewReader(os.Stdin)
-	response, _ := reader.ReadString('\n')
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	if response == "y" || response == "yes" {
-		// Confirm the permanent deletion
-		fmt.Printf("\n⚠️  WARNING: This will permanently delete the folder and all data at:\n   %s\n", sharePath)
-		fmt.Print("Are you absolutely sure? Type 'DELETE' to confirm: ")
-
-		confirmation, _ := reader.ReadString('\n')
-		confirmation = strings.TrimSpace(confirmation)
-
-		if confirmation == "DELETE" {
-			if err := os.RemoveAll(sharePath); err != nil {
-				return fmt.Errorf("failed to delete folder: %w", err)
-			}
-			fmt.Printf("✓ Folder and data deleted: %s\n", sharePath)
-		} else {
-			fmt.Println("Deletion cancelled. Folder preserved.")
-		}
-	} else {
-		fmt.Println("Folder preserved.")
-	}
-
 	return nil
 }
 
@@ -285,28 +224,12 @@ func parseCSV(s string) []string {
 	if s == "" {
 		return nil
 	}
-	result := []string{}
-	current := ""
-	for _, ch := range s {
-		if ch == ',' {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-		} else if ch != ' ' {
-			current += string(ch)
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
 		}
 	}
-	if current != "" {
-		result = append(result, current)
-	}
 	return result
-}
-
-func getHostname() (string, error) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "server", nil // fallback to generic name
-	}
-	return hostname, nil
 }

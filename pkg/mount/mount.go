@@ -5,14 +5,23 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"strings"
+
+	"sambo/pkg/validate"
 )
 
 const (
-	fstabPath   = "/etc/fstab"
-	fstabBackup = "/etc/fstab.backup"
+	fstabPath       = "/etc/fstab"
+	fstabBackup     = "/etc/fstab.backup"
+	credentialsDir  = "/root/.sambo"
+	credentialsMode = 0600
 )
+
+// fstabEntry represents a parsed fstab line
+type fstabEntry struct {
+	source     string
+	mountPoint string
+}
 
 // MountType represents the type of network mount
 type MountType string
@@ -29,67 +38,45 @@ type Mount struct {
 	Type       MountType // cifs or nfs
 	Options    string    // mount options
 	Persistent bool      // whether it's in fstab
-	Active     bool      // whether it's currently mounted
 }
 
-// List returns all network mounts from both /proc/mounts (active) and /etc/fstab (configured)
-func List() ([]Mount, error) {
-	mountMap := make(map[string]*Mount) // key: source + mountpoint
+// loadFstabEntries reads fstab once and returns a map for O(1) lookups
+func loadFstabEntries() map[string]bool {
+	entries := make(map[string]bool)
 
-	// First, read from /etc/fstab to get configured mounts
-	fstabMounts, err := readFstabMounts()
+	file, err := os.Open(fstabPath)
 	if err != nil {
-		// Don't fail if fstab doesn't exist or can't be read, just log and continue
-		fmt.Fprintf(os.Stderr, "Warning: failed to read fstab: %v\n", err)
-	} else {
-		for _, mount := range fstabMounts {
-			key := mount.Source + "|" + mount.MountPoint
-			mount.Persistent = true
-			mount.Active = false // Will be set to true if found in /proc/mounts
-			mountMap[key] = &mount
-		}
-	}
-
-	// Then, read from /proc/mounts to get currently active mounts
-	procMounts, err := readProcMounts()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read proc mounts: %w", err)
-	}
-
-	for _, mount := range procMounts {
-		key := mount.Source + "|" + mount.MountPoint
-		existing, exists := mountMap[key]
-		if exists {
-			// Mount exists in fstab, mark it as active
-			existing.Active = true
-			// Update options from actual mount
-			if mount.Options != "" {
-				existing.Options = mount.Options
-			}
-		} else {
-			// Mount is active but not in fstab
-			mount.Persistent = false
-			mount.Active = true
-			mountMap[key] = &mount
-		}
-	}
-
-	// Convert map to slice
-	var mounts []Mount
-	for _, mount := range mountMap {
-		mounts = append(mounts, *mount)
-	}
-
-	return mounts, nil
-}
-
-// readProcMounts reads currently active mounts from /proc/mounts
-func readProcMounts() ([]Mount, error) {
-	file, err := os.Open("/proc/mounts")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read /proc/mounts: %w", err)
+		return entries
 	}
 	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			key := fields[0] + ":" + fields[1]
+			entries[key] = true
+		}
+	}
+
+	return entries
+}
+
+// List returns all network mounts (CIFS and NFS)
+func List() ([]Mount, error) {
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read mounts: %w", err)
+	}
+	defer file.Close()
+
+	// Load fstab entries once for efficient lookups
+	fstabEntries := loadFstabEntries()
 
 	var mounts []Mount
 	scanner := bufio.NewScanner(file)
@@ -103,27 +90,23 @@ func readProcMounts() ([]Mount, error) {
 		}
 
 		mountType := fields[2]
-
-		// Check if this is a network mount (CIFS or NFS)
-		isNFS := strings.HasPrefix(mountType, "nfs") // Catches nfs, nfs3, nfs4, etc.
-		isCIFS := mountType == "cifs" || mountType == "smb" || mountType == "smbfs"
-
-		if !isNFS && !isCIFS {
+		if mountType != "cifs" && mountType != "nfs" && mountType != "nfs4" {
 			continue
 		}
 
-		// Normalize mount types
-		normalizedType := mountType
-		if isNFS {
-			normalizedType = "nfs"
-		} else if isCIFS {
-			normalizedType = "cifs"
+		// Normalize nfs4 to nfs
+		if mountType == "nfs4" {
+			mountType = "nfs"
 		}
+
+		// Use map lookup instead of re-reading fstab for each mount
+		fstabKey := fields[0] + ":" + fields[1]
 
 		mount := Mount{
 			Source:     fields[0],
 			MountPoint: fields[1],
-			Type:       MountType(normalizedType),
+			Type:       MountType(mountType),
+			Persistent: fstabEntries[fstabKey],
 		}
 
 		if len(fields) >= 4 {
@@ -134,69 +117,7 @@ func readProcMounts() ([]Mount, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading proc mounts: %w", err)
-	}
-
-	return mounts, nil
-}
-
-// readFstabMounts reads configured mounts from /etc/fstab
-func readFstabMounts() ([]Mount, error) {
-	file, err := os.Open(fstabPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var mounts []Mount
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip comments and empty lines
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) < 4 {
-			continue
-		}
-
-		source := fields[0]
-		mountPoint := fields[1]
-		fsType := fields[2]
-		options := fields[3]
-
-		// Check if this is a network mount
-		isNFS := strings.HasPrefix(fsType, "nfs")
-		isCIFS := fsType == "cifs" || fsType == "smb" || fsType == "smbfs"
-
-		if !isNFS && !isCIFS {
-			continue
-		}
-
-		// Normalize mount types
-		normalizedType := fsType
-		if isNFS {
-			normalizedType = "nfs"
-		} else if isCIFS {
-			normalizedType = "cifs"
-		}
-
-		mount := Mount{
-			Source:     source,
-			MountPoint: mountPoint,
-			Type:       MountType(normalizedType),
-			Options:    options,
-		}
-
-		mounts = append(mounts, mount)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading mounts: %w", err)
 	}
 
 	return mounts, nil
@@ -218,8 +139,8 @@ func Get(mountPoint string) (*Mount, error) {
 	return nil, fmt.Errorf("mount '%s' not found", mountPoint)
 }
 
-// MountCIFS mounts a CIFS/SMB share
-func MountCIFS(source, mountPoint, options string, persistent bool) error {
+// mountShare is the internal implementation for mounting any network share
+func mountShare(source, mountPoint, fsType, options string, persistent bool) error {
 	// Check if already mounted
 	existing, _ := Get(mountPoint)
 	if existing != nil {
@@ -227,16 +148,12 @@ func MountCIFS(source, mountPoint, options string, persistent bool) error {
 	}
 
 	// Ensure mount point exists
-	mountPointCreated := false
-	if _, err := os.Stat(mountPoint); os.IsNotExist(err) {
-		if err := os.MkdirAll(mountPoint, 0755); err != nil {
-			return fmt.Errorf("failed to create mount point: %w", err)
-		}
-		mountPointCreated = true
+	if err := os.MkdirAll(mountPoint, 0755); err != nil {
+		return fmt.Errorf("failed to create mount point: %w", err)
 	}
 
 	// Build mount command
-	args := []string{"-t", "cifs"}
+	args := []string{"-t", fsType}
 	if options != "" {
 		args = append(args, "-o", options)
 	}
@@ -244,84 +161,101 @@ func MountCIFS(source, mountPoint, options string, persistent bool) error {
 
 	cmd := exec.Command("mount", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		// Cleanup mount point if we created it and mount failed
-		if mountPointCreated {
-			os.Remove(mountPoint)
-		}
 		return fmt.Errorf("failed to mount: %s: %w", string(output), err)
-	}
-
-	// Verify mount succeeded
-	if !isMountActive(mountPoint) {
-		if mountPointCreated {
-			os.Remove(mountPoint)
-		}
-		return fmt.Errorf("mount command succeeded but mount point is not active")
 	}
 
 	// Add to fstab if persistent
 	if persistent {
-		if err := addToFstab(source, mountPoint, "cifs", options); err != nil {
-			// Mount is active but couldn't persist - warn but don't fail
-			fmt.Fprintf(os.Stderr, "Warning: mounted successfully but failed to add to fstab: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Mount is active but will not persist across reboots.\n")
+		if err := addToFstab(source, mountPoint, fsType, options); err != nil {
+			return fmt.Errorf("mounted successfully but failed to add to fstab: %w", err)
 		}
 	}
 
 	return nil
 }
 
+// MountCIFS mounts a CIFS/SMB share
+func MountCIFS(source, mountPoint, options string, persistent bool) error {
+	// Validate source
+	if err := validate.CIFSSource(source); err != nil {
+		return err
+	}
+	// Validate mount point
+	if err := validate.MountPoint(mountPoint); err != nil {
+		return err
+	}
+	return mountShare(source, mountPoint, "cifs", options, persistent)
+}
+
+// MountCIFSWithCredentials mounts a CIFS share using secure credentials handling
+// Credentials are stored in a secure file instead of being passed on command line
+func MountCIFSWithCredentials(source, mountPoint, username, password string, persistent bool) error {
+	// Validate source
+	if err := validate.CIFSSource(source); err != nil {
+		return err
+	}
+	// Validate mount point
+	if err := validate.MountPoint(mountPoint); err != nil {
+		return err
+	}
+
+	// Create credentials file
+	credFile, err := writeCredentialsFile(source, username, password)
+	if err != nil {
+		return fmt.Errorf("failed to create credentials file: %w", err)
+	}
+
+	// Build options with credentials file reference
+	options := fmt.Sprintf("credentials=%s,uid=1000,gid=1000", credFile)
+
+	return mountShare(source, mountPoint, "cifs", options, persistent)
+}
+
+// writeCredentialsFile creates a secure credentials file for CIFS mounts
+func writeCredentialsFile(source, username, password string) (string, error) {
+	// Create credentials directory if it doesn't exist
+	if err := os.MkdirAll(credentialsDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create credentials directory: %w", err)
+	}
+
+	// Generate a filename based on the source (sanitized)
+	// Replace characters that aren't safe in filenames
+	safeName := strings.ReplaceAll(source, "/", "_")
+	safeName = strings.ReplaceAll(safeName, "\\", "_")
+	credFile := fmt.Sprintf("%s/creds_%s", credentialsDir, safeName)
+
+	// Write credentials to file
+	content := fmt.Sprintf("username=%s\npassword=%s\n", username, password)
+	if err := os.WriteFile(credFile, []byte(content), credentialsMode); err != nil {
+		return "", fmt.Errorf("failed to write credentials file: %w", err)
+	}
+
+	return credFile, nil
+}
+
+// RemoveCredentialsFile removes the credentials file for a given source
+func RemoveCredentialsFile(source string) error {
+	safeName := strings.ReplaceAll(source, "/", "_")
+	safeName = strings.ReplaceAll(safeName, "\\", "_")
+	credFile := fmt.Sprintf("%s/creds_%s", credentialsDir, safeName)
+
+	if err := os.Remove(credFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove credentials file: %w", err)
+	}
+	return nil
+}
+
 // MountNFS mounts an NFS share
 func MountNFS(source, mountPoint, options string, persistent bool) error {
-	// Check if already mounted
-	existing, _ := Get(mountPoint)
-	if existing != nil {
-		return fmt.Errorf("something is already mounted at '%s'", mountPoint)
+	// Validate source
+	if err := validate.NFSSource(source); err != nil {
+		return err
 	}
-
-	// Ensure mount point exists
-	mountPointCreated := false
-	if _, err := os.Stat(mountPoint); os.IsNotExist(err) {
-		if err := os.MkdirAll(mountPoint, 0755); err != nil {
-			return fmt.Errorf("failed to create mount point: %w", err)
-		}
-		mountPointCreated = true
+	// Validate mount point
+	if err := validate.MountPoint(mountPoint); err != nil {
+		return err
 	}
-
-	// Build mount command
-	args := []string{"-t", "nfs"}
-	if options != "" {
-		args = append(args, "-o", options)
-	}
-	args = append(args, source, mountPoint)
-
-	cmd := exec.Command("mount", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		// Cleanup mount point if we created it and mount failed
-		if mountPointCreated {
-			os.Remove(mountPoint)
-		}
-		return fmt.Errorf("failed to mount: %s: %w", string(output), err)
-	}
-
-	// Verify mount succeeded
-	if !isMountActive(mountPoint) {
-		if mountPointCreated {
-			os.Remove(mountPoint)
-		}
-		return fmt.Errorf("mount command succeeded but mount point is not active")
-	}
-
-	// Add to fstab if persistent
-	if persistent {
-		if err := addToFstab(source, mountPoint, "nfs", options); err != nil {
-			// Mount is active but couldn't persist - warn but don't fail
-			fmt.Fprintf(os.Stderr, "Warning: mounted successfully but failed to add to fstab: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Mount is active but will not persist across reboots.\n")
-		}
-	}
-
-	return nil
+	return mountShare(source, mountPoint, "nfs", options, persistent)
 }
 
 // Unmount unmounts a share and optionally removes from fstab
@@ -332,40 +266,17 @@ func Unmount(mountPoint string, removePersistent bool) error {
 		return err
 	}
 
-	// Only try to unmount if currently active
-	if !mount.Active {
-		// If not active but still in fstab, just remove from fstab
-		if removePersistent && mount.Persistent {
-			if err := removeFromFstab(mount.Source, mountPoint); err != nil {
-				return fmt.Errorf("failed to remove from fstab: %w", err)
-			}
-		}
-		return nil
-	}
-
 	// Unmount
 	cmd := exec.Command("umount", mountPoint)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to unmount: %s: %w", string(output), err)
 	}
 
-	// Verify unmount succeeded
-	if isMountActive(mountPoint) {
-		return fmt.Errorf("umount command succeeded but mount is still active")
-	}
-
 	// Remove from fstab if requested
 	if removePersistent && mount.Persistent {
 		if err := removeFromFstab(mount.Source, mountPoint); err != nil {
-			// Unmount succeeded but couldn't remove from fstab - warn but don't fail
-			fmt.Fprintf(os.Stderr, "Warning: unmounted successfully but failed to remove from fstab: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Mount will reappear after reboot unless manually removed from /etc/fstab.\n")
+			return fmt.Errorf("unmounted successfully but failed to remove from fstab: %w", err)
 		}
-	}
-
-	// Try to remove mount point directory if empty
-	if entries, err := os.ReadDir(mountPoint); err == nil && len(entries) == 0 {
-		os.Remove(mountPoint)
 	}
 
 	return nil
@@ -373,66 +284,16 @@ func Unmount(mountPoint string, removePersistent bool) error {
 
 // Helper functions
 
-func getCurrentUser() (uid, gid string, err error) {
-	currentUser, err := user.Current()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get current user: %w", err)
-	}
-	return currentUser.Uid, currentUser.Gid, nil
-}
-
-func isMountActive(mountPoint string) bool {
-	file, err := os.Open("/proc/mounts")
-	if err != nil {
-		return false
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) >= 2 && fields[1] == mountPoint {
-			return true
-		}
-	}
-	return false
-}
-
-func isInFstab(source, mountPoint string) bool {
-	file, err := os.Open(fstabPath)
-	if err != nil {
-		return false
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip comments and empty lines
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			if fields[0] == source && fields[1] == mountPoint {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 func addToFstab(source, mountPoint, fsType, options string) error {
 	// Backup fstab
 	if err := backupFstab(); err != nil {
 		return err
 	}
 
-	// Check if already in fstab
-	if isInFstab(source, mountPoint) {
+	// Check if already in fstab using efficient lookup
+	fstabEntries := loadFstabEntries()
+	fstabKey := source + ":" + mountPoint
+	if fstabEntries[fstabKey] {
 		return nil // Already exists
 	}
 
@@ -446,15 +307,15 @@ func addToFstab(source, mountPoint, fsType, options string) error {
 	// Default options if not specified
 	if options == "" {
 		if fsType == "cifs" {
-			uid, gid, err := getCurrentUser()
-			if err != nil {
-				// Fallback to root if we can't determine current user
-				uid, gid = "0", "0"
-			}
-			options = fmt.Sprintf("credentials=/root/.smbcredentials,uid=%s,gid=%s", uid, gid)
+			options = "credentials=/root/.smbcredentials,uid=1000,gid=1000"
 		} else {
 			options = "defaults"
 		}
+	}
+
+	// Add _netdev option for network mounts to wait for network before mounting
+	if !strings.Contains(options, "_netdev") {
+		options += ",_netdev"
 	}
 
 	// Format: source mountpoint fstype options dump pass

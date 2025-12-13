@@ -3,6 +3,8 @@ package cmd
 import (
 	"flag"
 	"fmt"
+
+	"sambo/pkg/confirm"
 	"sambo/pkg/user"
 )
 
@@ -82,12 +84,25 @@ func userRemove(args []string) error {
 	fs := flag.NewFlagSet("user remove", flag.ExitOnError)
 	username := fs.String("username", "", "Username (required)")
 	removeSystem := fs.Bool("remove-system", false, "Also remove system user")
+	yes := fs.Bool("y", false, "Skip confirmation prompt")
 
 	fs.Parse(args)
 
 	if *username == "" {
 		printUserUsage()
 		return fmt.Errorf("username is required")
+	}
+
+	// Confirm deletion - use Dangerous for system user removal
+	msg := fmt.Sprintf("Remove Samba user '%s'?", *username)
+	if *removeSystem {
+		if !confirm.Dangerous(fmt.Sprintf("Remove user '%s' and system account?", *username), *yes) {
+			fmt.Println("Cancelled")
+			return nil
+		}
+	} else if !confirm.Action(msg, *yes) {
+		fmt.Println("Cancelled")
+		return nil
 	}
 
 	if err := user.Remove(*username, *removeSystem); err != nil {

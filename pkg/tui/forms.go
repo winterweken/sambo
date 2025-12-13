@@ -1032,20 +1032,17 @@ func (fm formModel) submitMountCIFS(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
-	// Build options string
-	var opts []string
-	if username != "" {
-		opts = append(opts, fmt.Sprintf("username=%s", username))
-		if password != "" {
-			opts = append(opts, fmt.Sprintf("password=%s", password))
-		}
+	var err error
+	if username != "" && password != "" {
+		// Use secure credentials handling - credentials stored in file, not command line
+		err = mount.MountCIFSWithCredentials(source, mountPoint, username, password, persistent)
 	} else {
-		opts = append(opts, "credentials=/root/.smbcredentials")
+		// Use default credentials file
+		opts := "credentials=/root/.smbcredentials,uid=1000,gid=1000"
+		err = mount.MountCIFS(source, mountPoint, opts, persistent)
 	}
-	opts = append(opts, "uid=1000", "gid=1000")
-	optionsStr := strings.Join(opts, ",")
 
-	if err := mount.MountCIFS(source, mountPoint, optionsStr, persistent); err != nil {
+	if err != nil {
 		parent.message = fmt.Sprintf("Failed to mount: %v", err)
 		parent.messageType = "error"
 		return fm, nil
