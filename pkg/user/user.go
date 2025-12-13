@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"sambo/pkg/validate"
 )
 
 // User represents a Samba user
@@ -93,6 +95,16 @@ func Get(username string) (*User, error) {
 
 // Add creates a new Samba user
 func Add(username, password string, createSystem bool) error {
+	// Validate username
+	if err := validate.Username(username); err != nil {
+		return fmt.Errorf("invalid username: %w", err)
+	}
+
+	// Validate password
+	if err := validate.Password(password); err != nil {
+		return fmt.Errorf("invalid password: %w", err)
+	}
+
 	// Check if user already exists
 	existing, _ := Get(username)
 	if existing != nil {
@@ -165,6 +177,11 @@ func Remove(username string, removeSystem bool) error {
 
 // SetPassword changes a user's password
 func SetPassword(username, password string) error {
+	// Validate password
+	if err := validate.Password(password); err != nil {
+		return fmt.Errorf("invalid password: %w", err)
+	}
+
 	// Check if user exists
 	_, err := Get(username)
 	if err != nil {
