@@ -38,6 +38,7 @@ type Mount struct {
 	Type       MountType // cifs or nfs
 	Options    string    // mount options
 	Persistent bool      // whether it's in fstab
+	Active     bool      // whether it's currently mounted
 }
 
 // loadFstabEntries reads fstab once and returns a map for O(1) lookups
@@ -107,6 +108,7 @@ func List() ([]Mount, error) {
 			MountPoint: fields[1],
 			Type:       MountType(mountType),
 			Persistent: fstabEntries[fstabKey],
+			Active:     true, // Reading from /proc/mounts, so it's active
 		}
 
 		if len(fields) >= 4 {
