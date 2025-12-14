@@ -381,6 +381,15 @@ func (m model) viewSambaMenu() string {
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
 	s += m.renderMessage()
 
+	if m.message != "" {
+		s += "\n\n"
+		if m.messageType == "error" {
+			s += errorStyle.Render("✗ " + m.message)
+		} else if m.messageType == "success" {
+			s += successStyle.Render("✓ " + m.message)
+		}
+	}
+
 	return s + "\n"
 }
 
@@ -409,6 +418,15 @@ func (m model) viewNFSMenu() string {
 	s += menuBoxStyle.Render(menuContent)
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
 	s += m.renderMessage()
+
+	if m.message != "" {
+		s += "\n\n"
+		if m.messageType == "error" {
+			s += errorStyle.Render("✗ " + m.message)
+		} else if m.messageType == "success" {
+			s += successStyle.Render("✓ " + m.message)
+		}
+	}
 
 	return s + "\n"
 }
@@ -441,6 +459,15 @@ func (m model) viewMountMenu() string {
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
 	s += m.renderMessage()
 
+	if m.message != "" {
+		s += "\n\n"
+		if m.messageType == "error" {
+			s += errorStyle.Render("✗ " + m.message)
+		} else if m.messageType == "success" {
+			s += successStyle.Render("✓ " + m.message)
+		}
+	}
+
 	return s + "\n"
 }
 
@@ -469,6 +496,15 @@ func (m model) viewUserMenu() string {
 	s += menuBoxStyle.Render(menuContent)
 	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
 	s += m.renderMessage()
+
+	if m.message != "" {
+		s += "\n\n"
+		if m.messageType == "error" {
+			s += errorStyle.Render("✗ " + m.message)
+		} else if m.messageType == "success" {
+			s += successStyle.Render("✓ " + m.message)
+		}
+	}
 
 	return s + "\n"
 }
