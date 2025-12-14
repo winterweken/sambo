@@ -537,8 +537,13 @@ func (fm formModel) Update(msg tea.Msg, parent *model) (formModel, tea.Cmd) {
 			}
 
 			// On text input field, move to next field (Enter advances like Tab)
+			// If we're on the last field before submit, just submit directly
 			if fm.focusIndex < len(fm.fields) && !fm.fields[fm.focusIndex].displayOnly {
 				fm.focusIndex++
+				// If we've moved to the submit button, submit the form
+				if fm.focusIndex == fm.submitIndex {
+					return fm.submitForm(parent)
+				}
 				// Update input focus
 				for i := range fm.fields {
 					if i == fm.focusIndex && !fm.fields[i].checkbox && !fm.fields[i].displayOnly {
