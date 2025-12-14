@@ -7,14 +7,25 @@ import (
 	"os/exec"
 	"strings"
 
+	"sambo/pkg/platform"
 	"sambo/pkg/service"
 	"sambo/pkg/validate"
 )
 
-const (
-	sambaConfPath = "/etc/samba/smb.conf"
-	sambaBackup   = "/etc/samba/smb.conf.backup"
-)
+// getSambaConfPath returns the path to smb.conf
+func getSambaConfPath() string {
+	return platform.SambaConfigPath()
+}
+
+// getSambaBackupPath returns the path to the smb.conf backup
+func getSambaBackupPath() string {
+	return platform.SambaConfigPath() + ".backup"
+}
+
+// getSambaConfigDir returns the directory containing smb.conf
+func getSambaConfigDir() string {
+	return platform.SambaConfigDir()
+}
 
 // CheckInstalled verifies that Samba is installed and configured
 func CheckInstalled() error {
@@ -26,6 +37,9 @@ func CheckInstalledInteractive(interactive bool) error {
 	// Check if smbd binary exists
 	if _, err := exec.LookPath("smbd"); err != nil {
 		if !interactive {
+			if platform.IsMacOS() {
+				return fmt.Errorf("Samba is not installed.\n\nPlease install Samba:\n  macOS: brew install samba")
+			}
 			return fmt.Errorf("Samba is not installed.\n\nPlease install Samba:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
 		}
 
@@ -49,10 +63,13 @@ func CheckInstalledInteractive(interactive bool) error {
 		fmt.Println("✓ Samba installed successfully")
 	}
 
+	confPath := getSambaConfPath()
+	configDir := getSambaConfigDir()
+
 	// Check if config file exists, create if missing
-	if _, err := os.Stat(sambaConfPath); os.IsNotExist(err) {
+	if _, err := os.Stat(confPath); os.IsNotExist(err) {
 		// Try to create directory
-		if err := os.MkdirAll("/etc/samba", 0755); err != nil {
+		if err := os.MkdirAll(configDir, 0755); err != nil {
 			return fmt.Errorf("Samba is installed but cannot create config directory: %w", err)
 		}
 
@@ -65,7 +82,7 @@ func CheckInstalledInteractive(interactive bool) error {
    dns proxy = no
 
 `
-		if err := os.WriteFile(sambaConfPath, []byte(basicConfig), 0644); err != nil {
+		if err := os.WriteFile(confPath, []byte(basicConfig), 0644); err != nil {
 			return fmt.Errorf("Samba is installed but cannot create config file: %w", err)
 		}
 		fmt.Println("✓ Created basic Samba configuration")
@@ -78,7 +95,14 @@ func installSamba() error {
 	var cmd *exec.Cmd
 
 	// Detect package manager
-	if _, err := exec.LookPath("apt-get"); err == nil {
+	if platform.IsMacOS() {
+		if _, err := exec.LookPath("brew"); err == nil {
+			fmt.Println("Installing Samba using Homebrew...")
+			cmd = exec.Command("brew", "install", "samba")
+		} else {
+			return fmt.Errorf("Homebrew is not installed.\n\nPlease install Homebrew first: https://brew.sh\nThen run: brew install samba")
+		}
+	} else if _, err := exec.LookPath("apt-get"); err == nil {
 		fmt.Println("Installing Samba using apt-get...")
 		cmd = exec.Command("apt-get", "install", "-y", "samba")
 	} else if _, err := exec.LookPath("yum"); err == nil {
@@ -94,6 +118,9 @@ func installSamba() error {
 		fmt.Println("Installing Samba using zypper...")
 		cmd = exec.Command("zypper", "install", "-y", "samba")
 	} else {
+		if platform.IsMacOS() {
+			return fmt.Errorf("could not detect package manager.\n\nPlease install Homebrew first: https://brew.sh\nThen run: brew install samba")
+		}
 		return fmt.Errorf("could not detect package manager.\n\nPlease install Samba manually:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
 	}
 
@@ -120,12 +147,13 @@ type Share struct {
 
 // List returns all configured Samba shares
 func List() ([]Share, error) {
-	file, err := os.Open(sambaConfPath)
+	confPath := getSambaConfPath()
+	file, err := os.Open(confPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []Share{}, nil
 		}
-		return nil, fmt.Errorf("failed to open %s: %w", sambaConfPath, err)
+		return nil, fmt.Errorf("failed to open %s: %w", confPath, err)
 	}
 	defer file.Close()
 
@@ -258,7 +286,8 @@ func Create(share Share) error {
 	}
 
 	// Append share configuration
-	f, err := os.OpenFile(sambaConfPath, os.O_APPEND|os.O_WRONLY, 0644)
+	confPath := getSambaConfPath()
+	f, err := os.OpenFile(confPath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open config file: %w", err)
 	}
@@ -342,8 +371,10 @@ func Remove(name string) error {
 		return err
 	}
 
+	confPath := getSambaConfPath()
+
 	// Read entire config
-	content, err := os.ReadFile(sambaConfPath)
+	content, err := os.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
@@ -376,7 +407,7 @@ func Remove(name string) error {
 
 	// Write new config
 	newContent := strings.Join(newLines, "\n")
-	if err := os.WriteFile(sambaConfPath, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(confPath, []byte(newContent), 0644); err != nil {
 		restoreConfig()
 		return fmt.Errorf("failed to write config: %w", err)
 	}
@@ -418,8 +449,10 @@ func Modify(name string, updates map[string]interface{}) error {
 		return err
 	}
 
+	confPath := getSambaConfPath()
+
 	// Read entire config
-	content, err := os.ReadFile(sambaConfPath)
+	content, err := os.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
@@ -482,7 +515,7 @@ func Modify(name string, updates map[string]interface{}) error {
 	newContent := strings.Join(newLines, "\n") + config
 
 	// Write to temp file first for atomic operation
-	tmpFile := sambaConfPath + ".tmp"
+	tmpFile := confPath + ".tmp"
 	if err := os.WriteFile(tmpFile, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to write temp config: %w", err)
 	}
@@ -495,7 +528,7 @@ func Modify(name string, updates map[string]interface{}) error {
 	}
 
 	// Atomic rename
-	if err := os.Rename(tmpFile, sambaConfPath); err != nil {
+	if err := os.Rename(tmpFile, confPath); err != nil {
 		os.Remove(tmpFile)
 		restoreConfig()
 		return fmt.Errorf("failed to apply config: %w", err)
@@ -508,12 +541,15 @@ func Modify(name string, updates map[string]interface{}) error {
 // Helper functions
 
 func backupConfig() error {
-	input, err := os.ReadFile(sambaConfPath)
+	confPath := getSambaConfPath()
+	backupPath := getSambaBackupPath()
+
+	input, err := os.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
 
-	if err := os.WriteFile(sambaBackup, input, 0644); err != nil {
+	if err := os.WriteFile(backupPath, input, 0644); err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
@@ -521,12 +557,15 @@ func backupConfig() error {
 }
 
 func restoreConfig() error {
-	input, err := os.ReadFile(sambaBackup)
+	confPath := getSambaConfPath()
+	backupPath := getSambaBackupPath()
+
+	input, err := os.ReadFile(backupPath)
 	if err != nil {
 		return fmt.Errorf("failed to read backup: %w", err)
 	}
 
-	if err := os.WriteFile(sambaConfPath, input, 0644); err != nil {
+	if err := os.WriteFile(confPath, input, 0644); err != nil {
 		return fmt.Errorf("failed to restore config: %w", err)
 	}
 
@@ -534,7 +573,8 @@ func restoreConfig() error {
 }
 
 func testConfig() error {
-	cmd := exec.Command("testparm", "-s", sambaConfPath)
+	confPath := getSambaConfPath()
+	cmd := exec.Command("testparm", "-s", confPath)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("configuration test failed: %w", err)
 	}
@@ -542,7 +582,20 @@ func testConfig() error {
 }
 
 func reloadSamba() error {
-	// Try systemctl first
+	if platform.IsMacOS() {
+		// macOS: Send SIGHUP to smbd or use brew services
+		cmd := exec.Command("pkill", "-HUP", "smbd")
+		if err := cmd.Run(); err != nil {
+			// Try restarting via brew services
+			cmd = exec.Command("brew", "services", "restart", "samba")
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("failed to reload samba: %w", err)
+			}
+		}
+		return nil
+	}
+
+	// Linux: Try systemctl first
 	cmd := exec.Command("systemctl", "reload", "smbd")
 	if err := cmd.Run(); err != nil {
 		// Fallback to service command
@@ -556,7 +609,9 @@ func reloadSamba() error {
 
 // EnsureTimeMachineGlobalConfig checks and adds necessary global configuration for Time Machine
 func EnsureTimeMachineGlobalConfig() error {
-	content, err := os.ReadFile(sambaConfPath)
+	confPath := getSambaConfPath()
+
+	content, err := os.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
@@ -634,7 +689,7 @@ func EnsureTimeMachineGlobalConfig() error {
 
 	// Write updated config
 	newContent := strings.Join(newLines, "\n")
-	if err := os.WriteFile(sambaConfPath, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(confPath, []byte(newContent), 0644); err != nil {
 		restoreConfig()
 		return fmt.Errorf("failed to write config: %w", err)
 	}

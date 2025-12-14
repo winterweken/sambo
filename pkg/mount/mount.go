@@ -7,15 +7,32 @@ import (
 	"os/exec"
 	"strings"
 
+	"sambo/pkg/platform"
 	"sambo/pkg/validate"
 )
 
 const (
-	fstabPath       = "/etc/fstab"
-	fstabBackup     = "/etc/fstab.backup"
-	credentialsDir  = "/root/.sambo"
 	credentialsMode = 0600
 )
+
+// getFstabPath returns the path to fstab
+func getFstabPath() string {
+	return platform.FstabPath()
+}
+
+// getFstabBackupPath returns the path to fstab backup
+func getFstabBackupPath() string {
+	fstab := platform.FstabPath()
+	if fstab == "" {
+		return ""
+	}
+	return fstab + ".backup"
+}
+
+// getCredentialsDir returns the path to credentials directory
+func getCredentialsDir() string {
+	return platform.CredentialsDir()
+}
 
 // fstabEntry represents a parsed fstab line
 type fstabEntry struct {
@@ -45,6 +62,11 @@ type Mount struct {
 func loadFstabEntries() map[string]bool {
 	entries := make(map[string]bool)
 
+	fstabPath := getFstabPath()
+	if fstabPath == "" {
+		return entries // macOS doesn't use fstab for network mounts
+	}
+
 	file, err := os.Open(fstabPath)
 	if err != nil {
 		return entries
@@ -70,13 +92,10 @@ func loadFstabEntries() map[string]bool {
 
 // List returns all network mounts (CIFS and NFS)
 func List() ([]Mount, error) {
-	// Try Linux /proc/mounts first
-	if mounts, err := listLinux(); err == nil {
-		return mounts, nil
+	if platform.IsMacOS() {
+		return listMacOS()
 	}
-
-	// Fall back to macOS mount command
-	return listMacOS()
+	return listLinux()
 }
 
 // listLinux reads mounts from /proc/mounts (Linux-specific)
@@ -233,20 +252,49 @@ func mountShare(source, mountPoint, fsType, options string, persistent bool) err
 		return fmt.Errorf("failed to create mount point: %w", err)
 	}
 
-	// Build mount command
-	args := []string{"-t", fsType}
-	if options != "" {
-		args = append(args, "-o", options)
-	}
-	args = append(args, source, mountPoint)
+	var cmd *exec.Cmd
 
-	cmd := exec.Command("mount", args...)
+	if platform.IsMacOS() {
+		// macOS uses different mount commands
+		if fsType == "cifs" {
+			// macOS uses mount_smbfs
+			// Convert //server/share to //user@server/share if needed
+			args := []string{}
+			if options != "" {
+				args = append(args, "-o", options)
+			}
+			args = append(args, source, mountPoint)
+			cmd = exec.Command("mount_smbfs", args...)
+		} else {
+			// macOS uses mount_nfs
+			args := []string{}
+			if options != "" {
+				args = append(args, "-o", options)
+			}
+			args = append(args, source, mountPoint)
+			cmd = exec.Command("mount_nfs", args...)
+		}
+	} else {
+		// Linux mount command
+		args := []string{"-t", fsType}
+		if options != "" {
+			args = append(args, "-o", options)
+		}
+		args = append(args, source, mountPoint)
+		cmd = exec.Command("mount", args...)
+	}
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to mount: %s: %w", string(output), err)
 	}
 
-	// Add to fstab if persistent
+	// Add to fstab if persistent (Linux only)
 	if persistent {
+		if platform.IsMacOS() {
+			// macOS doesn't use fstab for network mounts in the same way
+			// We could add to auto_master or use other methods, but for now just warn
+			return fmt.Errorf("persistent mounts are not fully supported on macOS. Mount succeeded but will not persist after reboot")
+		}
 		if err := addToFstab(source, mountPoint, fsType, options); err != nil {
 			return fmt.Errorf("mounted successfully but failed to add to fstab: %w", err)
 		}
@@ -294,8 +342,10 @@ func MountCIFSWithCredentials(source, mountPoint, username, password string, per
 
 // writeCredentialsFile creates a secure credentials file for CIFS mounts
 func writeCredentialsFile(source, username, password string) (string, error) {
+	credDir := getCredentialsDir()
+
 	// Create credentials directory if it doesn't exist
-	if err := os.MkdirAll(credentialsDir, 0700); err != nil {
+	if err := os.MkdirAll(credDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create credentials directory: %w", err)
 	}
 
@@ -303,7 +353,7 @@ func writeCredentialsFile(source, username, password string) (string, error) {
 	// Replace characters that aren't safe in filenames
 	safeName := strings.ReplaceAll(source, "/", "_")
 	safeName = strings.ReplaceAll(safeName, "\\", "_")
-	credFile := fmt.Sprintf("%s/creds_%s", credentialsDir, safeName)
+	credFile := fmt.Sprintf("%s/creds_%s", credDir, safeName)
 
 	// Write credentials to file
 	content := fmt.Sprintf("username=%s\npassword=%s\n", username, password)
@@ -316,9 +366,11 @@ func writeCredentialsFile(source, username, password string) (string, error) {
 
 // RemoveCredentialsFile removes the credentials file for a given source
 func RemoveCredentialsFile(source string) error {
+	credDir := getCredentialsDir()
+
 	safeName := strings.ReplaceAll(source, "/", "_")
 	safeName = strings.ReplaceAll(safeName, "\\", "_")
-	credFile := fmt.Sprintf("%s/creds_%s", credentialsDir, safeName)
+	credFile := fmt.Sprintf("%s/creds_%s", credDir, safeName)
 
 	if err := os.Remove(credFile); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove credentials file: %w", err)
@@ -366,6 +418,11 @@ func Unmount(mountPoint string, removePersistent bool) error {
 // Helper functions
 
 func addToFstab(source, mountPoint, fsType, options string) error {
+	fstabPath := getFstabPath()
+	if fstabPath == "" {
+		return fmt.Errorf("fstab not supported on this platform")
+	}
+
 	// Backup fstab
 	if err := backupFstab(); err != nil {
 		return err
@@ -410,6 +467,11 @@ func addToFstab(source, mountPoint, fsType, options string) error {
 }
 
 func removeFromFstab(source, mountPoint string) error {
+	fstabPath := getFstabPath()
+	if fstabPath == "" {
+		return nil // fstab not supported on this platform
+	}
+
 	// Backup fstab
 	if err := backupFstab(); err != nil {
 		return err
@@ -456,6 +518,13 @@ func removeFromFstab(source, mountPoint string) error {
 }
 
 func backupFstab() error {
+	fstabPath := getFstabPath()
+	backupPath := getFstabBackupPath()
+
+	if fstabPath == "" || backupPath == "" {
+		return nil // fstab not supported on this platform
+	}
+
 	// Check if file exists
 	if _, err := os.Stat(fstabPath); os.IsNotExist(err) {
 		return nil
@@ -466,7 +535,7 @@ func backupFstab() error {
 		return fmt.Errorf("failed to read fstab: %w", err)
 	}
 
-	if err := os.WriteFile(fstabBackup, input, 0644); err != nil {
+	if err := os.WriteFile(backupPath, input, 0644); err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
@@ -474,7 +543,14 @@ func backupFstab() error {
 }
 
 func restoreFstab() error {
-	input, err := os.ReadFile(fstabBackup)
+	fstabPath := getFstabPath()
+	backupPath := getFstabBackupPath()
+
+	if fstabPath == "" || backupPath == "" {
+		return nil // fstab not supported on this platform
+	}
+
+	input, err := os.ReadFile(backupPath)
 	if err != nil {
 		return fmt.Errorf("failed to read backup: %w", err)
 	}

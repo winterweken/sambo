@@ -7,14 +7,20 @@ import (
 	"os/exec"
 	"strings"
 
+	"sambo/pkg/platform"
 	"sambo/pkg/service"
 	"sambo/pkg/validate"
 )
 
-const (
-	exportsPath   = "/etc/exports"
-	exportsBackup = "/etc/exports.backup"
-)
+// getExportsPath returns the path to the NFS exports file
+func getExportsPath() string {
+	return platform.NFSExportsPath()
+}
+
+// getExportsBackupPath returns the path to the NFS exports backup file
+func getExportsBackupPath() string {
+	return platform.NFSExportsPath() + ".backup"
+}
 
 // CheckInstalled verifies that NFS server is installed and configured
 func CheckInstalled() error {
@@ -23,31 +29,40 @@ func CheckInstalled() error {
 
 // CheckInstalledInteractive verifies that NFS server is installed and optionally offers to install it
 func CheckInstalledInteractive(interactive bool) error {
-	// Check if exportfs binary exists
-	if _, err := exec.LookPath("exportfs"); err != nil {
-		if !interactive {
-			return fmt.Errorf("NFS server is not installed.\n\nPlease install NFS server:\n  Debian/Ubuntu: sudo apt-get install nfs-kernel-server\n  RHEL/CentOS:   sudo yum install nfs-utils\n  Arch:          sudo pacman -S nfs-utils")
+	// macOS has built-in nfsd, Linux uses exportfs
+	if platform.IsMacOS() {
+		if _, err := exec.LookPath("nfsd"); err != nil {
+			return fmt.Errorf("NFS server (nfsd) not found. This should be built into macOS.")
 		}
+	} else {
+		// Check if exportfs binary exists (Linux)
+		if _, err := exec.LookPath("exportfs"); err != nil {
+			if !interactive {
+				return fmt.Errorf("NFS server is not installed.\n\nPlease install NFS server:\n  Debian/Ubuntu: sudo apt-get install nfs-kernel-server\n  RHEL/CentOS:   sudo yum install nfs-utils\n  Arch:          sudo pacman -S nfs-utils")
+			}
 
-		// Offer to install
-		fmt.Println("NFS server is not installed.")
-		fmt.Print("Would you like to install it now? (y/N): ")
+			// Offer to install
+			fmt.Println("NFS server is not installed.")
+			fmt.Print("Would you like to install it now? (y/N): ")
 
-		var response string
-		fmt.Scanln(&response)
-		response = strings.ToLower(strings.TrimSpace(response))
+			var response string
+			fmt.Scanln(&response)
+			response = strings.ToLower(strings.TrimSpace(response))
 
-		if response != "y" && response != "yes" {
-			return fmt.Errorf("NFS server installation cancelled")
+			if response != "y" && response != "yes" {
+				return fmt.Errorf("NFS server installation cancelled")
+			}
+
+			// Detect package manager and install
+			if err := installNFS(); err != nil {
+				return fmt.Errorf("failed to install NFS server: %w", err)
+			}
+
+			fmt.Println("✓ NFS server installed successfully")
 		}
-
-		// Detect package manager and install
-		if err := installNFS(); err != nil {
-			return fmt.Errorf("failed to install NFS server: %w", err)
-		}
-
-		fmt.Println("✓ NFS server installed successfully")
 	}
+
+	exportsPath := getExportsPath()
 
 	// Check if exports file exists, create if missing
 	if _, err := os.Stat(exportsPath); os.IsNotExist(err) {
@@ -62,6 +77,11 @@ func CheckInstalledInteractive(interactive bool) error {
 }
 
 func installNFS() error {
+	// macOS has built-in NFS server
+	if platform.IsMacOS() {
+		return fmt.Errorf("macOS has a built-in NFS server (nfsd). No installation needed.")
+	}
+
 	var cmd *exec.Cmd
 
 	// Detect package manager and appropriate package name
@@ -103,6 +123,7 @@ type Export struct {
 
 // List returns all configured NFS exports, grouped by path
 func List() ([]Export, error) {
+	exportsPath := getExportsPath()
 	file, err := os.Open(exportsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -199,6 +220,7 @@ func Create(export Export) error {
 	}
 
 	// Append export
+	exportsPath := getExportsPath()
 	f, err := os.OpenFile(exportsPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open exports file: %w", err)
@@ -240,6 +262,8 @@ func Remove(path string) error {
 	if err := backupConfig(); err != nil {
 		return err
 	}
+
+	exportsPath := getExportsPath()
 
 	// Read entire config
 	content, err := os.ReadFile(exportsPath)
@@ -341,6 +365,9 @@ func parseExportLine(line string) *Export {
 }
 
 func backupConfig() error {
+	exportsPath := getExportsPath()
+	backupPath := getExportsBackupPath()
+
 	// Check if file exists
 	if _, err := os.Stat(exportsPath); os.IsNotExist(err) {
 		// Create empty file
@@ -357,7 +384,7 @@ func backupConfig() error {
 		return fmt.Errorf("failed to read exports: %w", err)
 	}
 
-	if err := os.WriteFile(exportsBackup, input, 0644); err != nil {
+	if err := os.WriteFile(backupPath, input, 0644); err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
@@ -365,7 +392,10 @@ func backupConfig() error {
 }
 
 func restoreConfig() error {
-	input, err := os.ReadFile(exportsBackup)
+	exportsPath := getExportsPath()
+	backupPath := getExportsBackupPath()
+
+	input, err := os.ReadFile(backupPath)
 	if err != nil {
 		return fmt.Errorf("failed to read backup: %w", err)
 	}
@@ -378,7 +408,20 @@ func restoreConfig() error {
 }
 
 func reloadNFS() error {
-	// Try exportfs command
+	if platform.IsMacOS() {
+		// macOS: use nfsd update to reload exports
+		cmd := exec.Command("nfsd", "update")
+		if err := cmd.Run(); err != nil {
+			// Try restart if update fails
+			cmd = exec.Command("nfsd", "restart")
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("failed to reload NFS exports: %w", err)
+			}
+		}
+		return nil
+	}
+
+	// Linux: Try exportfs command
 	cmd := exec.Command("exportfs", "-ra")
 	if err := cmd.Run(); err != nil {
 		// Fallback to systemctl restart
