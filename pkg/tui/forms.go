@@ -531,9 +531,27 @@ func (fm formModel) Update(msg tea.Msg, parent *model) (formModel, tea.Cmd) {
 				return fm, nil
 			}
 
-			// Submit form
+			// Submit form when on submit button
 			if fm.focusIndex == fm.submitIndex {
 				return fm.submitForm(parent)
+			}
+
+			// On text input field, move to next field (Enter advances like Tab)
+			if fm.focusIndex < len(fm.fields) && !fm.fields[fm.focusIndex].displayOnly {
+				fm.focusIndex++
+				// Update input focus
+				for i := range fm.fields {
+					if i == fm.focusIndex && !fm.fields[i].checkbox && !fm.fields[i].displayOnly {
+						fm.fields[i].input.Focus()
+						fm.fields[i].input.PromptStyle = focusedStyle
+						fm.fields[i].input.TextStyle = focusedStyle
+					} else if !fm.fields[i].checkbox && !fm.fields[i].displayOnly {
+						fm.fields[i].input.Blur()
+						fm.fields[i].input.PromptStyle = noStyle
+						fm.fields[i].input.TextStyle = noStyle
+					}
+				}
+				return fm, nil
 			}
 
 		case " ":

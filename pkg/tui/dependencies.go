@@ -59,6 +59,15 @@ func (m model) viewDependencies() string {
 
 	s.WriteString(titleStyle.Render(" System Dependencies ") + "\n\n")
 
+	// Show spinner if installing
+	if m.isInstalling {
+		s.WriteString("\n")
+		s.WriteString(infoStyle.Render(fmt.Sprintf(" %s %s ", m.spinner.View(), m.installMsg)))
+		s.WriteString("\n\n")
+		s.WriteString(helpStyle.Render("Please wait while packages are being installed..."))
+		return s.String() + "\n"
+	}
+
 	// Detect package manager
 	pm := system.DetectPackageManager()
 	pmName := string(pm)
@@ -185,10 +194,11 @@ func (m model) handleDependenciesEnter() (tea.Model, tea.Cmd) {
 
 	// Install the component
 	component := components[m.cursor].name
-	m.message = fmt.Sprintf("Installing %s... This may take a few moments.", component)
-	m.messageType = "info"
+	m.isInstalling = true
+	m.installMsg = fmt.Sprintf("Installing %s...", component)
+	m.message = ""
 
-	return m, installComponent(component)
+	return m, tea.Batch(m.spinner.Tick, installComponent(component))
 }
 
 func (m model) handleInstallMsg(msg installMsg) (tea.Model, tea.Cmd) {
