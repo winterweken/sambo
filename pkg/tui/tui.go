@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -146,15 +147,25 @@ type model struct {
 	selectModel *selectModel
 	inSelect    bool
 
+	// Spinner for long-running operations
+	spinner      spinner.Model
+	isInstalling bool
+	installMsg   string // What's being installed
+
 	// Data
 	selectedItem string
 }
 
 func newModel() model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(primaryColor)
+
 	return model{
 		currentScreen: screenMainMenu,
 		cursor:        0,
 		inForm:        false,
+		spinner:       s,
 	}
 }
 
@@ -163,6 +174,22 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle spinner updates when installing
+	if m.isInstalling {
+		switch msg := msg.(type) {
+		case spinner.TickMsg:
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		case installMsg:
+			m.isInstalling = false
+			m.installMsg = ""
+			return m.handleInstallMsg(msg)
+		}
+		// Ignore other input while installing
+		return m, nil
+	}
+
 	// Delegate to select if we're in select mode
 	if m.inSelect && m.selectModel != nil {
 		var cmd tea.Cmd
@@ -187,6 +214,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case installMsg:
+		m.isInstalling = false
+		m.installMsg = ""
 		return m.handleInstallMsg(msg)
 
 	case tea.KeyMsg:
