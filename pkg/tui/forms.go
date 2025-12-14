@@ -14,52 +14,16 @@ import (
 )
 
 var (
-	focusedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
-			Bold(true)
+	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
+	blurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	cursorStyle  = focusedStyle.Copy()
+	noStyle      = lipgloss.NewStyle()
 
-	blurredStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+	focusedButton = focusedStyle.Copy().Render("[ Submit ]")
+	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("Submit"))
 
-	cursorStyle = focusedStyle.Copy()
-	noStyle     = lipgloss.NewStyle()
-
-	focusedButton = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"}).
-			Background(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
-			Padding(0, 3).
-			Bold(true).
-			Render("Submit")
-
-	blurredButton = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"}).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}).
-			Padding(0, 3).
-			Render("Submit")
-
-	checkboxChecked = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"}).
-			Bold(true).
-			Render("[✓]")
-
-	checkboxUnchecked = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}).
-				Render("[ ]")
-
-	formBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
-			Padding(1, 2).
-			MarginTop(1)
-
-	fieldLabelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#5A4FCF", Dark: "#7D6FD9"}).
-			Bold(true)
-
-	fieldDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"}).
-			Italic(true)
+	checkboxChecked   = focusedStyle.Render("[✓]")
+	checkboxUnchecked = blurredStyle.Render("[ ]")
 )
 
 type formField struct {
@@ -81,10 +45,12 @@ type formModel struct {
 	browseable   bool
 	returnScreen screen
 	originalName string // For modify operations
+	message      string // Error/success message to display in form
+	messageType  string // "error" or "success"
 }
 
 func newSambaCreateForm() formModel {
-	inputs := make([]formField, 6)
+	inputs := make([]formField, 5)
 
 	inputs[0] = formField{
 		label:       "Share Name",
@@ -111,11 +77,6 @@ func newSambaCreateForm() formModel {
 		checkbox:    true,
 		checkValue:  false,
 		description: "Enable Apple Time Machine support",
-	}
-	inputs[5] = formField{
-		label:       "TM Max Size",
-		input:       makeInput("0", "e.g., 500G, 1T, 0=unlimited"),
-		description: "Max backup size (only used if Time Machine enabled)",
 	}
 
 	inputs[0].input.Focus()
@@ -303,7 +264,7 @@ func newSambaModifyForm(shareName string) (formModel, error) {
 		return formModel{}, err
 	}
 
-	inputs := make([]formField, 8)
+	inputs := make([]formField, 7)
 
 	// Share name (read-only display)
 	nameInput := makeInput(share.Name, "Share name (read-only)")
@@ -358,20 +319,8 @@ func newSambaModifyForm(shareName string) (formModel, error) {
 		description: "Enable Apple Time Machine support",
 	}
 
-	// Time Machine max size
-	tmMaxSize := share.TimeMachineMaxSize
-	if tmMaxSize == "" {
-		tmMaxSize = "0"
-	}
-	inputs[6] = formField{
-		label:       "TM Max Size",
-		input:       makeInput(tmMaxSize, "e.g., 500G, 1T, 0=unlimited"),
-		description: "Max backup size (only used if Time Machine enabled)",
-	}
-	inputs[6].input.SetValue(tmMaxSize)
-
 	// Note about path
-	inputs[7] = formField{
+	inputs[6] = formField{
 		label:       fmt.Sprintf("Path: %s (cannot be changed)", share.Path),
 		checkbox:    false,
 		description: "",
@@ -417,13 +366,12 @@ func newNFSModifyForm(exportPath string) (formModel, error) {
 		displayOnly: true,
 	}
 
-	clientsInput := makeInput("", "IP, CIDR, or * for all")
-	clientsInput.SetValue(export.Clients)
 	inputs[1] = formField{
 		label:       "Clients",
-		input:       clientsInput,
+		input:       makeInput(export.Clients, "IP, CIDR, or * for all"),
 		description: "Client access specification (e.g., 192.168.1.0/24)",
 	}
+	inputs[1].input.SetValue(export.Clients)
 
 	inputs[2] = formField{
 		label:       "Read Only",
@@ -522,40 +470,40 @@ func (fm formModel) Update(msg tea.Msg, parent *model) (formModel, tea.Cmd) {
 			return fm, nil
 
 		case "enter":
-			// Handle checkbox toggle
-			if fm.focusIndex < len(fm.fields) && fm.fields[fm.focusIndex].checkbox {
-				fm.fields[fm.focusIndex].checkValue = !fm.fields[fm.focusIndex].checkValue
-				if fm.formType == "samba-create" && fm.focusIndex == 4 {
-					fm.timeMachine = fm.fields[fm.focusIndex].checkValue
-				}
-				return fm, nil
-			}
-
 			// Submit form when on submit button
 			if fm.focusIndex == fm.submitIndex {
 				return fm.submitForm(parent)
 			}
 
-			// On text input field, move to next field (Enter advances like Tab)
-			// If we're on the last field before submit, just submit directly
+			// For any field (text or checkbox), Enter advances to next or submits
 			if fm.focusIndex < len(fm.fields) && !fm.fields[fm.focusIndex].displayOnly {
+				// Blur current text field if applicable
+				if !fm.fields[fm.focusIndex].checkbox {
+					fm.fields[fm.focusIndex].input.Blur()
+					fm.fields[fm.focusIndex].input.PromptStyle = noStyle
+					fm.fields[fm.focusIndex].input.TextStyle = noStyle
+				}
+
+				// Move to next field
 				fm.focusIndex++
-				// If we've moved to the submit button, submit the form
-				if fm.focusIndex == fm.submitIndex {
+
+				// Skip display-only fields and checkboxes (Enter skips past them to submit)
+				for fm.focusIndex < len(fm.fields) && (fm.fields[fm.focusIndex].displayOnly || fm.fields[fm.focusIndex].checkbox) {
+					fm.focusIndex++
+				}
+
+				// If we've reached or passed the submit button, submit the form
+				if fm.focusIndex >= fm.submitIndex {
 					return fm.submitForm(parent)
 				}
-				// Update input focus
-				for i := range fm.fields {
-					if i == fm.focusIndex && !fm.fields[i].checkbox && !fm.fields[i].displayOnly {
-						fm.fields[i].input.Focus()
-						fm.fields[i].input.PromptStyle = focusedStyle
-						fm.fields[i].input.TextStyle = focusedStyle
-					} else if !fm.fields[i].checkbox && !fm.fields[i].displayOnly {
-						fm.fields[i].input.Blur()
-						fm.fields[i].input.PromptStyle = noStyle
-						fm.fields[i].input.TextStyle = noStyle
-					}
+
+				// Focus the new field if it's a text input
+				if fm.focusIndex < len(fm.fields) && !fm.fields[fm.focusIndex].checkbox && !fm.fields[fm.focusIndex].displayOnly {
+					fm.fields[fm.focusIndex].input.Focus()
+					fm.fields[fm.focusIndex].input.PromptStyle = focusedStyle
+					fm.fields[fm.focusIndex].input.TextStyle = focusedStyle
 				}
+
 				return fm, nil
 			}
 
@@ -601,8 +549,6 @@ func (fm formModel) submitForm(parent *model) (formModel, tea.Cmd) {
 		return fm.submitMountNFS(parent)
 	case "mount-unmount":
 		return fm.submitMountUnmount(parent)
-	case "mount-edit":
-		return fm.submitMountEdit(parent)
 	case "user-add":
 		return fm.submitUserAdd(parent)
 	case "user-password":
@@ -618,30 +564,21 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	path := fm.fields[1].input.Value()
 	comment := fm.fields[2].input.Value()
 	users := fm.fields[3].input.Value()
-	timeMachine := fm.fields[4].checkValue // Read directly from checkbox
-	tmMaxSize := fm.fields[5].input.Value()
+	timeMachine := fm.fields[4].checkValue // Read directly from checkbox field
 
 	if name == "" || path == "" {
-		parent.message = "Name and path are required"
-		parent.messageType = "error"
-		return fm, nil
-	}
-
-	// Check if Samba is installed (non-interactive for TUI)
-	if err := samba.CheckInstalledInteractive(false); err != nil {
-		parent.message = fmt.Sprintf("%v", err)
-		parent.messageType = "error"
+		fm.message = "Name and path are required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	share := samba.Share{
-		Name:              name,
-		Path:              path,
-		Comment:           comment,
-		ReadOnly:          false,
-		Browseable:        true,
-		TimeMachine:       timeMachine,
-		TimeMachineMaxSize: tmMaxSize,
+		Name:        name,
+		Path:        path,
+		Comment:     comment,
+		ReadOnly:    false,
+		Browseable:  true,
+		TimeMachine: timeMachine,
 	}
 
 	if users != "" {
@@ -652,8 +589,8 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	}
 
 	if err := samba.Create(share); err != nil {
-		parent.message = fmt.Sprintf("Failed to create share: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to create share: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -668,14 +605,14 @@ func (fm formModel) submitSambaRemove(parent *model) (formModel, tea.Cmd) {
 	name := fm.fields[0].input.Value()
 
 	if name == "" {
-		parent.message = "Share name is required"
-		parent.messageType = "error"
+		fm.message = "Share name is required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := samba.Remove(name); err != nil {
-		parent.message = fmt.Sprintf("Failed to remove share: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to remove share: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -692,13 +629,12 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 	readOnly := fm.fields[3].checkValue
 	browseable := fm.fields[4].checkValue
 	timeMachine := fm.fields[5].checkValue
-	tmMaxSize := fm.fields[6].input.Value()
 
 	// Get the original share to keep path
 	share, err := samba.Get(fm.originalName)
 	if err != nil {
-		parent.message = fmt.Sprintf("Failed to load share: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to load share: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -707,7 +643,6 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 	share.ReadOnly = readOnly
 	share.Browseable = browseable
 	share.TimeMachine = timeMachine
-	share.TimeMachineMaxSize = tmMaxSize
 
 	if users != "" {
 		share.ValidUsers = strings.Split(users, ",")
@@ -720,14 +655,14 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 
 	// Remove and re-create the share
 	if err := samba.Remove(fm.originalName); err != nil {
-		parent.message = fmt.Sprintf("Failed to modify share: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to modify share: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := samba.Create(*share); err != nil {
-		parent.message = fmt.Sprintf("Failed to update share: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to update share: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -746,15 +681,8 @@ func (fm formModel) submitNFSCreate(parent *model) (formModel, tea.Cmd) {
 	asyncMode := fm.fields[4].checkValue
 
 	if path == "" {
-		parent.message = "Path is required"
-		parent.messageType = "error"
-		return fm, nil
-	}
-
-	// Check if NFS is installed (non-interactive for TUI)
-	if err := nfs.CheckInstalledInteractive(false); err != nil {
-		parent.message = fmt.Sprintf("%v", err)
-		parent.messageType = "error"
+		fm.message = "Path is required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -791,8 +719,8 @@ func (fm formModel) submitNFSCreate(parent *model) (formModel, tea.Cmd) {
 	}
 
 	if err := nfs.Create(export); err != nil {
-		parent.message = fmt.Sprintf("Failed to create export: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to create export: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -807,14 +735,14 @@ func (fm formModel) submitNFSRemove(parent *model) (formModel, tea.Cmd) {
 	path := fm.fields[0].input.Value()
 
 	if path == "" {
-		parent.message = "Path is required"
-		parent.messageType = "error"
+		fm.message = "Path is required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := nfs.Remove(path); err != nil {
-		parent.message = fmt.Sprintf("Failed to remove export: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to remove export: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -859,8 +787,8 @@ func (fm formModel) submitNFSModify(parent *model) (formModel, tea.Cmd) {
 
 	// Remove and re-create the export
 	if err := nfs.Remove(fm.originalName); err != nil {
-		parent.message = fmt.Sprintf("Failed to modify export: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to modify export: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -871,8 +799,8 @@ func (fm formModel) submitNFSModify(parent *model) (formModel, tea.Cmd) {
 	}
 
 	if err := nfs.Create(export); err != nil {
-		parent.message = fmt.Sprintf("Failed to update export: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to update export: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -888,14 +816,14 @@ func (fm formModel) submitUserAdd(parent *model) (formModel, tea.Cmd) {
 	password := fm.fields[1].input.Value()
 
 	if username == "" || password == "" {
-		parent.message = "Username and password are required"
-		parent.messageType = "error"
+		fm.message = "Username and password are required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := user.Add(username, password, true); err != nil {
-		parent.message = fmt.Sprintf("Failed to add user: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to add user: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -911,14 +839,14 @@ func (fm formModel) submitUserPassword(parent *model) (formModel, tea.Cmd) {
 	password := fm.fields[1].input.Value()
 
 	if username == "" || password == "" {
-		parent.message = "Username and password are required"
-		parent.messageType = "error"
+		fm.message = "Username and password are required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := user.SetPassword(username, password); err != nil {
-		parent.message = fmt.Sprintf("Failed to set password: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to set password: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -933,14 +861,14 @@ func (fm formModel) submitUserRemove(parent *model) (formModel, tea.Cmd) {
 	username := fm.fields[0].input.Value()
 
 	if username == "" {
-		parent.message = "Username is required"
-		parent.messageType = "error"
+		fm.message = "Username is required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := user.Remove(username, false); err != nil {
-		parent.message = fmt.Sprintf("Failed to remove user: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to remove user: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -1030,15 +958,11 @@ func newMountNFSForm() formModel {
 }
 
 func newMountUnmountForm() formModel {
-	return newMountUnmountFormWithPath("")
-}
-
-func newMountUnmountFormWithPath(mountPoint string) formModel {
 	inputs := make([]formField, 2)
 
 	inputs[0] = formField{
 		label:       "Mount Point",
-		input:       makeInput(mountPoint, "Path to unmount"),
+		input:       makeInput("", "Path to unmount"),
 		description: "Path to the mounted directory",
 	}
 	inputs[1] = formField{
@@ -1046,11 +970,6 @@ func newMountUnmountFormWithPath(mountPoint string) formModel {
 		checkbox:    true,
 		checkValue:  false,
 		description: "Also remove from /etc/fstab",
-	}
-
-	// Set the mount point value if provided
-	if mountPoint != "" {
-		inputs[0].input.SetValue(mountPoint)
 	}
 
 	inputs[0].input.Focus()
@@ -1066,58 +985,6 @@ func newMountUnmountFormWithPath(mountPoint string) formModel {
 	}
 }
 
-func newMountEditForm(mountPoint string) (formModel, error) {
-	mnt, err := mount.Get(mountPoint)
-	if err != nil {
-		return formModel{}, err
-	}
-
-	inputs := make([]formField, 4)
-
-	// Mount point (read-only display)
-	inputs[0] = formField{
-		label:       "Mount Point",
-		input:       makeInput(mnt.MountPoint, ""),
-		description: "Path to the mounted directory",
-		displayOnly: true,
-	}
-	inputs[0].input.SetValue(mnt.MountPoint)
-
-	// Source (read-only display)
-	inputs[1] = formField{
-		label:       "Source",
-		input:       makeInput(mnt.Source, ""),
-		description: "Remote share location",
-		displayOnly: true,
-	}
-	inputs[1].input.SetValue(mnt.Source)
-
-	// Type (read-only display)
-	inputs[2] = formField{
-		label:       "Type",
-		input:       makeInput(string(mnt.Type), ""),
-		description: "Mount type (NFS or CIFS)",
-		displayOnly: true,
-	}
-	inputs[2].input.SetValue(strings.ToUpper(string(mnt.Type)))
-
-	// Persistent toggle
-	inputs[3] = formField{
-		label:       "Persistent",
-		checkbox:    true,
-		checkValue:  mnt.Persistent,
-		description: "Mount automatically on boot",
-	}
-
-	return formModel{
-		fields:       inputs,
-		focusIndex:   3, // Start on the checkbox
-		submitIndex:  len(inputs),
-		formType:     "mount-edit",
-		returnScreen: screenMountMenu,
-	}, nil
-}
-
 func (fm formModel) submitMountCIFS(parent *model) (formModel, tea.Cmd) {
 	source := fm.fields[0].input.Value()
 	mountPoint := fm.fields[1].input.Value()
@@ -1126,24 +993,27 @@ func (fm formModel) submitMountCIFS(parent *model) (formModel, tea.Cmd) {
 	persistent := fm.fields[4].checkValue
 
 	if source == "" || mountPoint == "" {
-		parent.message = "Source and mount point are required"
-		parent.messageType = "error"
+		fm.message = "Source and mount point are required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
-	var err error
-	if username != "" && password != "" {
-		// Use secure credentials handling - credentials stored in file, not command line
-		err = mount.MountCIFSWithCredentials(source, mountPoint, username, password, persistent)
+	// Build options string
+	var opts []string
+	if username != "" {
+		opts = append(opts, fmt.Sprintf("username=%s", username))
+		if password != "" {
+			opts = append(opts, fmt.Sprintf("password=%s", password))
+		}
 	} else {
-		// Use default credentials file
-		opts := "credentials=/root/.smbcredentials,uid=1000,gid=1000"
-		err = mount.MountCIFS(source, mountPoint, opts, persistent)
+		opts = append(opts, "credentials=/root/.smbcredentials")
 	}
+	opts = append(opts, "uid=1000", "gid=1000")
+	optionsStr := strings.Join(opts, ",")
 
-	if err != nil {
-		parent.message = fmt.Sprintf("Failed to mount: %v", err)
-		parent.messageType = "error"
+	if err := mount.MountCIFS(source, mountPoint, optionsStr, persistent); err != nil {
+		fm.message = fmt.Sprintf("Failed to mount: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -1160,14 +1030,14 @@ func (fm formModel) submitMountNFS(parent *model) (formModel, tea.Cmd) {
 	persistent := fm.fields[2].checkValue
 
 	if source == "" || mountPoint == "" {
-		parent.message = "Source and mount point are required"
-		parent.messageType = "error"
+		fm.message = "Source and mount point are required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := mount.MountNFS(source, mountPoint, "defaults", persistent); err != nil {
-		parent.message = fmt.Sprintf("Failed to mount: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to mount: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -1183,14 +1053,14 @@ func (fm formModel) submitMountUnmount(parent *model) (formModel, tea.Cmd) {
 	removePersistent := fm.fields[1].checkValue
 
 	if mountPoint == "" {
-		parent.message = "Mount point is required"
-		parent.messageType = "error"
+		fm.message = "Mount point is required"
+		fm.messageType = "error"
 		return fm, nil
 	}
 
 	if err := mount.Unmount(mountPoint, removePersistent); err != nil {
-		parent.message = fmt.Sprintf("Failed to unmount: %v", err)
-		parent.messageType = "error"
+		fm.message = fmt.Sprintf("Failed to unmount: %v", err)
+		fm.messageType = "error"
 		return fm, nil
 	}
 
@@ -1201,38 +1071,7 @@ func (fm formModel) submitMountUnmount(parent *model) (formModel, tea.Cmd) {
 	return fm, nil
 }
 
-func (fm formModel) submitMountEdit(parent *model) (formModel, tea.Cmd) {
-	mountPoint := fm.fields[0].input.Value()
-	persistent := fm.fields[3].checkValue
-
-	if mountPoint == "" {
-		parent.message = "Mount point is required"
-		parent.messageType = "error"
-		return fm, nil
-	}
-
-	if err := mount.SetPersistent(mountPoint, persistent); err != nil {
-		parent.message = fmt.Sprintf("Failed to update mount: %v", err)
-		parent.messageType = "error"
-		return fm, nil
-	}
-
-	status := "temporary"
-	if persistent {
-		status = "persistent"
-	}
-	parent.message = fmt.Sprintf("Mount '%s' is now %s", mountPoint, status)
-	parent.messageType = "success"
-	parent.currentScreen = fm.returnScreen
-	parent.inForm = false
-	return fm, nil
-}
-
 func (fm formModel) View() string {
-	return fm.ViewWithMessage("", "")
-}
-
-func (fm formModel) ViewWithMessage(message, messageType string) string {
 	var b strings.Builder
 
 	// Title
@@ -1256,8 +1095,6 @@ func (fm formModel) ViewWithMessage(message, messageType string) string {
 		title = "Mount NFS Share"
 	case "mount-unmount":
 		title = "Unmount Network Share"
-	case "mount-edit":
-		title = "Edit Mount Settings"
 	case "user-add":
 		title = "Add User"
 	case "user-password":
@@ -1267,36 +1104,6 @@ func (fm formModel) ViewWithMessage(message, messageType string) string {
 	}
 
 	b.WriteString(titleStyle.Render(title) + "\n\n")
-
-	// Show message if present
-	if message != "" {
-		var messageStyle lipgloss.Style
-		switch messageType {
-		case "error":
-			messageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#CC0000", Dark: "#FF4444"}).
-				Background(lipgloss.AdaptiveColor{Light: "#FFE6E6", Dark: "#3A1A1A"}).
-				Bold(true).
-				Padding(0, 1).
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.AdaptiveColor{Light: "#CC0000", Dark: "#FF4444"})
-		case "success":
-			messageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"}).
-				Background(lipgloss.AdaptiveColor{Light: "#E6FFE6", Dark: "#1A3A1A"}).
-				Bold(true).
-				Padding(0, 1).
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"})
-		default:
-			messageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#0088CC", Dark: "#00AAFF"}).
-				Padding(0, 1).
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.AdaptiveColor{Light: "#0088CC", Dark: "#00AAFF"})
-		}
-		b.WriteString(messageStyle.Render(" "+message+" ") + "\n\n")
-	}
 
 	// Form fields
 	for i, field := range fm.fields {
@@ -1342,7 +1149,17 @@ func (fm formModel) ViewWithMessage(message, messageType string) string {
 	}
 	b.WriteString(fmt.Sprintf("\n%s\n", button))
 
-	b.WriteString("\n" + helpStyle.Render("Tab: Next field • Enter: Submit/Toggle • ESC: Cancel"))
+	b.WriteString("\n" + helpStyle.Render("Tab: Next field • Space: Toggle checkbox • Enter: Submit • ESC: Cancel"))
+
+	// Display error/success message if any
+	if fm.message != "" {
+		b.WriteString("\n\n")
+		if fm.messageType == "error" {
+			b.WriteString(errorStyle.Render("✗ " + fm.message))
+		} else if fm.messageType == "success" {
+			b.WriteString(successStyle.Render("✓ " + fm.message))
+		}
+	}
 
 	return b.String()
 }
