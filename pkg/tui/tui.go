@@ -122,6 +122,7 @@ const (
 	screenMountCIFS
 	screenMountNFS
 	screenMountUnmount
+	screenMountDiscover
 	screenUserMenu
 	screenUserList
 	screenUserAdd
@@ -204,7 +205,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentScreen = screenSambaMenu
 			case screenNFSList, screenNFSCreate, screenNFSModify, screenNFSRemove:
 				m.currentScreen = screenNFSMenu
-			case screenMountList, screenMountCIFS, screenMountNFS, screenMountUnmount:
+			case screenMountList, screenMountCIFS, screenMountNFS, screenMountUnmount, screenMountDiscover:
 				m.currentScreen = screenMountMenu
 			case screenUserList, screenUserAdd, screenUserPassword, screenUserRemove:
 				m.currentScreen = screenUserMenu
@@ -258,6 +259,8 @@ func (m model) View() string {
 		return m.viewMountMenu()
 	case screenMountList:
 		return m.viewMountList()
+	case screenMountDiscover:
+		return m.viewMountDiscover()
 	case screenUserMenu:
 		return m.viewUserMenu()
 	case screenUserList:
@@ -372,6 +375,7 @@ func (m model) viewMountMenu() string {
 		"💾 Mount CIFS/SMB Share",
 		"🌐 Mount NFS Share",
 		"⏏️  Unmount Share",
+		"🔍 Discover NFS Servers",
 		"⬅️  Back to Main Menu",
 	}
 
@@ -424,8 +428,10 @@ func (m model) getMaxCursor() int {
 	switch m.currentScreen {
 	case screenMainMenu:
 		return 4
-	case screenSambaMenu, screenNFSMenu, screenMountMenu, screenUserMenu:
+	case screenSambaMenu, screenNFSMenu, screenUserMenu:
 		return 4
+	case screenMountMenu:
+		return 5 // 6 items (0-5)
 	default:
 		return 0
 	}
@@ -545,6 +551,8 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.inSelect = true
 			return m, nil
 		case 4:
+			m.currentScreen = screenMountDiscover
+		case 5:
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
 		}

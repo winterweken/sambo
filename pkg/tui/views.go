@@ -7,6 +7,7 @@ import (
 	"sambo/pkg/samba"
 	"sambo/pkg/user"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -259,6 +260,62 @@ func (m model) viewMountList() string {
 	}
 
 	s += "\n" + helpBoxStyle.Render("Press ESC to go back")
+
+	return s + "\n"
+}
+
+func (m model) viewMountDiscover() string {
+	s := titleStyle.Render(" 🔍 NFS Server Discovery ") + "\n\n"
+
+	// Get local subnet
+	subnet, err := mount.GetLocalSubnet()
+	if err != nil {
+		s += errorStyle.Render(fmt.Sprintf(" ✗ Failed to detect subnet: %v ", err)) + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
+		return s
+	}
+
+	s += infoStyle.Render(fmt.Sprintf(" Scanning %s for NFS servers... ", subnet)) + "\n\n"
+
+	// Perform discovery
+	servers, err := mount.DiscoverNFSServers(subnet, 300*time.Millisecond)
+	if err != nil {
+		s += errorStyle.Render(fmt.Sprintf(" ✗ Scan failed: %v ", err)) + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
+		return s
+	}
+
+	if len(servers) == 0 {
+		s += emptyStateStyle.Render("📭 No NFS servers found on the network.\n\nMake sure NFS servers are running and accessible.") + "\n\n"
+		s += helpBoxStyle.Render("Press ESC to go back")
+		return s
+	}
+
+	s += successStyle.Render(fmt.Sprintf(" ✓ Found %d NFS server(s) ", len(servers))) + "\n\n"
+
+	for _, server := range servers {
+		// Server header
+		s += tableHeaderStyle.Render(fmt.Sprintf(" Server: %s ", server.IP)) + "\n"
+
+		// Exports
+		for i, export := range server.Exports {
+			clients := "*"
+			if len(export.Clients) > 0 {
+				clients = strings.Join(export.Clients, " ")
+			}
+
+			row := fmt.Sprintf("  %-35s → %s", truncate(export.Path, 35), clients)
+
+			if i%2 == 0 {
+				s += tableRowStyle.Render(row) + "\n"
+			} else {
+				s += tableAltRowStyle.Render(row) + "\n"
+			}
+		}
+		s += "\n"
+	}
+
+	s += helpBoxStyle.Render("Press ESC to go back")
 
 	return s + "\n"
 }

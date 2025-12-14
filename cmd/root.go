@@ -26,6 +26,15 @@ func Execute() error {
 		return nil
 	}
 
+	// Mount subcommands that don't require root
+	if command == "mount" && len(os.Args) > 2 {
+		subCmd := os.Args[2]
+		if subCmd == "list" || subCmd == "ls" || subCmd == "discover" || subCmd == "scan" || subCmd == "exports" ||
+			subCmd == "-h" || subCmd == "--help" || subCmd == "help" {
+			return handleMount(os.Args[2:])
+		}
+	}
+
 	// Check if running as root for all other commands
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("this tool must be run as root (use sudo)")
