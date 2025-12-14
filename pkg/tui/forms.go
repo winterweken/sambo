@@ -618,6 +618,7 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	path := fm.fields[1].input.Value()
 	comment := fm.fields[2].input.Value()
 	users := fm.fields[3].input.Value()
+	timeMachine := fm.fields[4].checkValue // Read directly from checkbox
 	tmMaxSize := fm.fields[5].input.Value()
 
 	if name == "" || path == "" {
@@ -639,7 +640,7 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 		Comment:           comment,
 		ReadOnly:          false,
 		Browseable:        true,
-		TimeMachine:       fm.timeMachine,
+		TimeMachine:       timeMachine,
 		TimeMachineMaxSize: tmMaxSize,
 	}
 
