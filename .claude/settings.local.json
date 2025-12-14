@@ -29,7 +29,9 @@
       "Bash(gh release delete:*)",
       "Bash(go build:*)",
       "Bash(mount:*)",
-      "Bash(./build/sambo mount:*)"
+      "Bash(./build/sambo mount:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []
