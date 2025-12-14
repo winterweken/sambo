@@ -78,6 +78,30 @@ func newMountUnmountSelect() (selectModel, error) {
 	}, nil
 }
 
+func newMountEditSelect() (selectModel, error) {
+	mounts, err := mount.List()
+	if err != nil {
+		return selectModel{}, err
+	}
+
+	items := make([]string, len(mounts))
+	for i, mnt := range mounts {
+		persistent := "temporary"
+		if mnt.Persistent {
+			persistent = "persistent"
+		}
+		items[i] = fmt.Sprintf("%s [%s] (from %s)", mnt.MountPoint, persistent, mnt.Source)
+	}
+
+	return selectModel{
+		items:        items,
+		cursor:       0,
+		selectType:   "mount-edit",
+		returnScreen: screenMountMenu,
+		nextScreen:   screenMountEdit,
+	}, nil
+}
+
 func (sm selectModel) Init() tea.Cmd {
 	return nil
 }
@@ -153,6 +177,26 @@ func (sm selectModel) Update(msg tea.Msg, parent *model) (selectModel, tea.Cmd) 
 				parent.inSelect = false
 				parent.currentScreen = sm.nextScreen
 				return sm, parent.form.Init()
+
+			case "mount-edit":
+				// Extract mount point from the display string (format: "mountpoint [persistent/temporary] (from source)")
+				mountPoint := selectedItem
+				if idx := strings.Index(selectedItem, " ["); idx != -1 {
+					mountPoint = selectedItem[:idx]
+				}
+				form, err := newMountEditForm(mountPoint)
+				if err != nil {
+					parent.message = fmt.Sprintf("Failed to load mount: %v", err)
+					parent.messageType = "error"
+					parent.currentScreen = sm.returnScreen
+					parent.inSelect = false
+					return sm, nil
+				}
+				parent.form = &form
+				parent.inForm = true
+				parent.inSelect = false
+				parent.currentScreen = sm.nextScreen
+				return sm, parent.form.Init()
 			}
 		}
 	}
@@ -172,6 +216,8 @@ func (sm selectModel) View() string {
 		title = "Select NFS Export to Modify"
 	case "mount-unmount":
 		title = "Select Mount to Unmount"
+	case "mount-edit":
+		title = "Select Mount to Edit"
 	}
 
 	s += titleStyle.Render(title) + "\n\n"

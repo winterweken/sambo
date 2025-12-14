@@ -84,7 +84,7 @@ type formModel struct {
 }
 
 func newSambaCreateForm() formModel {
-	inputs := make([]formField, 5)
+	inputs := make([]formField, 6)
 
 	inputs[0] = formField{
 		label:       "Share Name",
@@ -111,6 +111,11 @@ func newSambaCreateForm() formModel {
 		checkbox:    true,
 		checkValue:  false,
 		description: "Enable Apple Time Machine support",
+	}
+	inputs[5] = formField{
+		label:       "TM Max Size",
+		input:       makeInput("0", "e.g., 500G, 1T, 0=unlimited"),
+		description: "Max backup size (only used if Time Machine enabled)",
 	}
 
 	inputs[0].input.Focus()
@@ -298,7 +303,7 @@ func newSambaModifyForm(shareName string) (formModel, error) {
 		return formModel{}, err
 	}
 
-	inputs := make([]formField, 7)
+	inputs := make([]formField, 8)
 
 	// Share name (read-only display)
 	nameInput := makeInput(share.Name, "Share name (read-only)")
@@ -353,8 +358,20 @@ func newSambaModifyForm(shareName string) (formModel, error) {
 		description: "Enable Apple Time Machine support",
 	}
 
-	// Note about path
+	// Time Machine max size
+	tmMaxSize := share.TimeMachineMaxSize
+	if tmMaxSize == "" {
+		tmMaxSize = "0"
+	}
 	inputs[6] = formField{
+		label:       "TM Max Size",
+		input:       makeInput(tmMaxSize, "e.g., 500G, 1T, 0=unlimited"),
+		description: "Max backup size (only used if Time Machine enabled)",
+	}
+	inputs[6].input.SetValue(tmMaxSize)
+
+	// Note about path
+	inputs[7] = formField{
 		label:       fmt.Sprintf("Path: %s (cannot be changed)", share.Path),
 		checkbox:    false,
 		description: "",
@@ -561,6 +578,8 @@ func (fm formModel) submitForm(parent *model) (formModel, tea.Cmd) {
 		return fm.submitMountNFS(parent)
 	case "mount-unmount":
 		return fm.submitMountUnmount(parent)
+	case "mount-edit":
+		return fm.submitMountEdit(parent)
 	case "user-add":
 		return fm.submitUserAdd(parent)
 	case "user-password":
@@ -576,6 +595,7 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	path := fm.fields[1].input.Value()
 	comment := fm.fields[2].input.Value()
 	users := fm.fields[3].input.Value()
+	tmMaxSize := fm.fields[5].input.Value()
 
 	if name == "" || path == "" {
 		parent.message = "Name and path are required"
@@ -591,12 +611,13 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	}
 
 	share := samba.Share{
-		Name:        name,
-		Path:        path,
-		Comment:     comment,
-		ReadOnly:    false,
-		Browseable:  true,
-		TimeMachine: fm.timeMachine,
+		Name:              name,
+		Path:              path,
+		Comment:           comment,
+		ReadOnly:          false,
+		Browseable:        true,
+		TimeMachine:       fm.timeMachine,
+		TimeMachineMaxSize: tmMaxSize,
 	}
 
 	if users != "" {
@@ -647,6 +668,7 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 	readOnly := fm.fields[3].checkValue
 	browseable := fm.fields[4].checkValue
 	timeMachine := fm.fields[5].checkValue
+	tmMaxSize := fm.fields[6].input.Value()
 
 	// Get the original share to keep path
 	share, err := samba.Get(fm.originalName)
@@ -661,6 +683,7 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 	share.ReadOnly = readOnly
 	share.Browseable = browseable
 	share.TimeMachine = timeMachine
+	share.TimeMachineMaxSize = tmMaxSize
 
 	if users != "" {
 		share.ValidUsers = strings.Split(users, ",")
@@ -1019,6 +1042,58 @@ func newMountUnmountFormWithPath(mountPoint string) formModel {
 	}
 }
 
+func newMountEditForm(mountPoint string) (formModel, error) {
+	mnt, err := mount.Get(mountPoint)
+	if err != nil {
+		return formModel{}, err
+	}
+
+	inputs := make([]formField, 4)
+
+	// Mount point (read-only display)
+	inputs[0] = formField{
+		label:       "Mount Point",
+		input:       makeInput(mnt.MountPoint, ""),
+		description: "Path to the mounted directory",
+		displayOnly: true,
+	}
+	inputs[0].input.SetValue(mnt.MountPoint)
+
+	// Source (read-only display)
+	inputs[1] = formField{
+		label:       "Source",
+		input:       makeInput(mnt.Source, ""),
+		description: "Remote share location",
+		displayOnly: true,
+	}
+	inputs[1].input.SetValue(mnt.Source)
+
+	// Type (read-only display)
+	inputs[2] = formField{
+		label:       "Type",
+		input:       makeInput(string(mnt.Type), ""),
+		description: "Mount type (NFS or CIFS)",
+		displayOnly: true,
+	}
+	inputs[2].input.SetValue(strings.ToUpper(string(mnt.Type)))
+
+	// Persistent toggle
+	inputs[3] = formField{
+		label:       "Persistent",
+		checkbox:    true,
+		checkValue:  mnt.Persistent,
+		description: "Mount automatically on boot",
+	}
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   3, // Start on the checkbox
+		submitIndex:  len(inputs),
+		formType:     "mount-edit",
+		returnScreen: screenMountMenu,
+	}, nil
+}
+
 func (fm formModel) submitMountCIFS(parent *model) (formModel, tea.Cmd) {
 	source := fm.fields[0].input.Value()
 	mountPoint := fm.fields[1].input.Value()
@@ -1102,6 +1177,33 @@ func (fm formModel) submitMountUnmount(parent *model) (formModel, tea.Cmd) {
 	return fm, nil
 }
 
+func (fm formModel) submitMountEdit(parent *model) (formModel, tea.Cmd) {
+	mountPoint := fm.fields[0].input.Value()
+	persistent := fm.fields[3].checkValue
+
+	if mountPoint == "" {
+		parent.message = "Mount point is required"
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	if err := mount.SetPersistent(mountPoint, persistent); err != nil {
+		parent.message = fmt.Sprintf("Failed to update mount: %v", err)
+		parent.messageType = "error"
+		return fm, nil
+	}
+
+	status := "temporary"
+	if persistent {
+		status = "persistent"
+	}
+	parent.message = fmt.Sprintf("Mount '%s' is now %s", mountPoint, status)
+	parent.messageType = "success"
+	parent.currentScreen = fm.returnScreen
+	parent.inForm = false
+	return fm, nil
+}
+
 func (fm formModel) View() string {
 	return fm.ViewWithMessage("", "")
 }
@@ -1130,6 +1232,8 @@ func (fm formModel) ViewWithMessage(message, messageType string) string {
 		title = "Mount NFS Share"
 	case "mount-unmount":
 		title = "Unmount Network Share"
+	case "mount-edit":
+		title = "Edit Mount Settings"
 	case "user-add":
 		title = "Add User"
 	case "user-password":

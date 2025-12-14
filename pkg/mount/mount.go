@@ -155,6 +155,42 @@ func listLinux() ([]Mount, error) {
 	return mounts, nil
 }
 
+// loadAutoNFSEntries reads macOS auto_nfs and returns a map for O(1) lookups
+// Returns map[mountPoint]source for persistent NFS mounts
+func loadAutoNFSEntries() map[string]string {
+	entries := make(map[string]string)
+
+	autoNFSPath := platform.AutoNFSPath()
+	if autoNFSPath == "" {
+		return entries
+	}
+
+	file, err := os.Open(autoNFSPath)
+	if err != nil {
+		return entries
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// auto_nfs format: /mount/point -options server:/path
+		// Parse: first field is mount point, last field is server:/path
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			mountPoint := fields[0]
+			source := fields[len(fields)-1] // Last field is server:/path
+			entries[mountPoint] = source
+		}
+	}
+
+	return entries
+}
+
 // listMacOS reads mounts using the mount command (macOS/BSD)
 func listMacOS() ([]Mount, error) {
 	cmd := exec.Command("mount")
@@ -162,6 +198,9 @@ func listMacOS() ([]Mount, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to run mount command: %w", err)
 	}
+
+	// Load auto_nfs entries for persistence detection
+	autoNFSEntries := loadAutoNFSEntries()
 
 	var mounts []Mount
 	lines := strings.Split(string(output), "\n")
@@ -209,12 +248,20 @@ func listMacOS() ([]Mount, error) {
 			mountType = TypeCIFS
 		}
 
+		// Check if persistent in auto_nfs (for NFS mounts)
+		persistent := false
+		if isNFS {
+			if _, ok := autoNFSEntries[mountPoint]; ok {
+				persistent = true
+			}
+		}
+
 		mount := Mount{
 			Source:     source,
 			MountPoint: mountPoint,
 			Type:       mountType,
 			Active:     true,
-			Persistent: false, // macOS doesn't use fstab the same way
+			Persistent: persistent,
 		}
 
 		mounts = append(mounts, mount)
@@ -559,5 +606,199 @@ func restoreFstab() error {
 		return fmt.Errorf("failed to restore fstab: %w", err)
 	}
 
+	return nil
+}
+
+// SetPersistent toggles the persistence of a mount
+func SetPersistent(mountPoint string, persistent bool) error {
+	mount, err := Get(mountPoint)
+	if err != nil {
+		return err
+	}
+
+	if mount.Persistent == persistent {
+		return nil // Already in desired state
+	}
+
+	if platform.IsMacOS() {
+		if mount.Type == TypeNFS {
+			if persistent {
+				return addToAutoNFS(mount.Source, mount.MountPoint)
+			}
+			return removeFromAutoNFS(mount.MountPoint)
+		}
+		// CIFS/SMB persistence on macOS not yet supported
+		return fmt.Errorf("persistent CIFS/SMB mounts on macOS are not yet supported")
+	}
+
+	// Linux: use fstab
+	if persistent {
+		fsType := string(mount.Type)
+		return addToFstab(mount.Source, mount.MountPoint, fsType, mount.Options)
+	}
+	return removeFromFstab(mount.Source, mount.MountPoint)
+}
+
+// macOS auto_nfs management
+
+func getAutoNFSPath() string {
+	return platform.AutoNFSPath()
+}
+
+func getAutoNFSBackupPath() string {
+	autoNFS := platform.AutoNFSPath()
+	if autoNFS == "" {
+		return ""
+	}
+	return autoNFS + ".backup"
+}
+
+func backupAutoNFS() error {
+	autoNFSPath := getAutoNFSPath()
+	backupPath := getAutoNFSBackupPath()
+
+	if autoNFSPath == "" || backupPath == "" {
+		return nil
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(autoNFSPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	input, err := os.ReadFile(autoNFSPath)
+	if err != nil {
+		return fmt.Errorf("failed to read auto_nfs: %w", err)
+	}
+
+	if err := os.WriteFile(backupPath, input, 0644); err != nil {
+		return fmt.Errorf("failed to create backup: %w", err)
+	}
+
+	return nil
+}
+
+func restoreAutoNFS() error {
+	autoNFSPath := getAutoNFSPath()
+	backupPath := getAutoNFSBackupPath()
+
+	if autoNFSPath == "" || backupPath == "" {
+		return nil
+	}
+
+	input, err := os.ReadFile(backupPath)
+	if err != nil {
+		return fmt.Errorf("failed to read backup: %w", err)
+	}
+
+	if err := os.WriteFile(autoNFSPath, input, 0644); err != nil {
+		return fmt.Errorf("failed to restore auto_nfs: %w", err)
+	}
+
+	return nil
+}
+
+func addToAutoNFS(source, mountPoint string) error {
+	autoNFSPath := getAutoNFSPath()
+	if autoNFSPath == "" {
+		return fmt.Errorf("auto_nfs not supported on this platform")
+	}
+
+	// Backup auto_nfs
+	if err := backupAutoNFS(); err != nil {
+		return err
+	}
+
+	// Check if already in auto_nfs
+	entries := loadAutoNFSEntries()
+	if _, ok := entries[mountPoint]; ok {
+		return nil // Already exists
+	}
+
+	// Open auto_nfs for appending
+	f, err := os.OpenFile(autoNFSPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open auto_nfs: %w", err)
+	}
+	defer f.Close()
+
+	// Format: /mount/point -fstype=nfs,vers=3,rw,resvport server:/path
+	autoNFSLine := fmt.Sprintf("%s\t-fstype=nfs,vers=3,rw,resvport\t%s\n", mountPoint, source)
+
+	if _, err := f.WriteString(autoNFSLine); err != nil {
+		return fmt.Errorf("failed to write to auto_nfs: %w", err)
+	}
+
+	// Reload automount
+	if err := reloadAutomount(); err != nil {
+		restoreAutoNFS()
+		return fmt.Errorf("failed to reload automount: %w", err)
+	}
+
+	return nil
+}
+
+func removeFromAutoNFS(mountPoint string) error {
+	autoNFSPath := getAutoNFSPath()
+	if autoNFSPath == "" {
+		return nil
+	}
+
+	// Backup auto_nfs
+	if err := backupAutoNFS(); err != nil {
+		return err
+	}
+
+	// Read entire auto_nfs
+	content, err := os.ReadFile(autoNFSPath)
+	if err != nil {
+		return fmt.Errorf("failed to read auto_nfs: %w", err)
+	}
+
+	// Remove matching line
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Keep comments and empty lines
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			newLines = append(newLines, line)
+			continue
+		}
+
+		fields := strings.Fields(trimmed)
+		if len(fields) >= 1 {
+			// Skip the line to remove (first field is mount point)
+			if fields[0] == mountPoint {
+				continue
+			}
+		}
+
+		newLines = append(newLines, line)
+	}
+
+	// Write new auto_nfs
+	newContent := strings.Join(newLines, "\n")
+	if err := os.WriteFile(autoNFSPath, []byte(newContent), 0644); err != nil {
+		restoreAutoNFS()
+		return fmt.Errorf("failed to write auto_nfs: %w", err)
+	}
+
+	// Reload automount
+	if err := reloadAutomount(); err != nil {
+		restoreAutoNFS()
+		return fmt.Errorf("failed to reload automount: %w", err)
+	}
+
+	return nil
+}
+
+func reloadAutomount() error {
+	cmd := exec.Command("automount", "-vc")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("automount -vc failed: %s: %w", string(output), err)
+	}
 	return nil
 }

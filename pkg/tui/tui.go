@@ -121,6 +121,7 @@ const (
 	screenMountList
 	screenMountCIFS
 	screenMountNFS
+	screenMountEdit
 	screenMountUnmount
 	screenMountDiscover
 	screenUserMenu
@@ -209,7 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentScreen = screenSambaMenu
 			case screenNFSList, screenNFSCreate, screenNFSModify, screenNFSRemove:
 				m.currentScreen = screenNFSMenu
-			case screenMountList, screenMountCIFS, screenMountNFS, screenMountUnmount, screenMountDiscover:
+			case screenMountList, screenMountCIFS, screenMountNFS, screenMountEdit, screenMountUnmount, screenMountDiscover:
 				m.currentScreen = screenMountMenu
 			case screenUserList, screenUserAdd, screenUserPassword, screenUserRemove:
 				m.currentScreen = screenUserMenu
@@ -390,6 +391,7 @@ func (m model) viewMountMenu() string {
 		"📋 List Mounts",
 		"💾 Mount CIFS/SMB Share",
 		"🌐 Mount NFS Share",
+		"✏️  Edit Mount",
 		"⏏️  Unmount Share",
 		"🔍 Discover NFS Servers",
 		"⬅️  Back to Main Menu",
@@ -449,7 +451,7 @@ func (m model) getMaxCursor() int {
 	case screenSambaMenu, screenNFSMenu, screenUserMenu:
 		return 4
 	case screenMountMenu:
-		return 5 // 6 items including Discover (0-5)
+		return 6 // 7 items including Edit and Discover (0-6)
 	case screenDependencies:
 		return 4
 	default:
@@ -563,6 +565,18 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.inForm = true
 			return m, m.form.Init()
 		case 3:
+			// Show selection list for editing mount
+			m.currentScreen = screenMountEdit
+			selectModel, err := newMountEditSelect()
+			if err != nil {
+				m.message = fmt.Sprintf("Failed to list mounts: %v", err)
+				m.messageType = "error"
+				return m, nil
+			}
+			m.selectModel = &selectModel
+			m.inSelect = true
+			return m, nil
+		case 4:
 			// Show selection list of mounted shares
 			selectModel, err := newMountUnmountSelect()
 			if err != nil {
@@ -573,9 +587,9 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.selectModel = &selectModel
 			m.inSelect = true
 			return m, nil
-		case 4:
-			m.currentScreen = screenMountDiscover
 		case 5:
+			m.currentScreen = screenMountDiscover
+		case 6:
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
 		}
