@@ -157,6 +157,11 @@ func listMacOS() ([]Mount, error) {
 		}
 
 		// Check if it's a network mount
+		// Match patterns like "(smbfs", "(smbfs,", "(cifs", "(nfs", "(nfs)", "(nfs,"
+		// Also skip autofs entries (they're mount triggers, not actual mounts)
+		if strings.Contains(line, "(autofs") {
+			continue
+		}
 		isSMB := strings.Contains(line, "(smbfs") || strings.Contains(line, "(cifs")
 		isNFS := strings.Contains(line, "(nfs")
 
