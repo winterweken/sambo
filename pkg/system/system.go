@@ -4,22 +4,34 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"sambo/pkg/platform"
 )
 
 // PackageManager represents a system package manager
 type PackageManager string
 
 const (
-	APT    PackageManager = "apt"
-	YUM    PackageManager = "yum"
-	DNF    PackageManager = "dnf"
-	PACMAN PackageManager = "pacman"
-	ZYPPER PackageManager = "zypper"
-	UNKNOWN PackageManager = "unknown"
+	APT      PackageManager = "apt"
+	YUM      PackageManager = "yum"
+	DNF      PackageManager = "dnf"
+	PACMAN   PackageManager = "pacman"
+	ZYPPER   PackageManager = "zypper"
+	HOMEBREW PackageManager = "homebrew"
+	UNKNOWN  PackageManager = "unknown"
 )
 
 // DetectPackageManager detects which package manager is available
 func DetectPackageManager() PackageManager {
+	// Check for macOS first
+	if platform.IsMacOS() {
+		if _, err := exec.LookPath("brew"); err == nil {
+			return HOMEBREW
+		}
+		return UNKNOWN
+	}
+
+	// Linux package managers
 	managers := []struct {
 		name PackageManager
 		cmd  string
@@ -42,6 +54,14 @@ func DetectPackageManager() PackageManager {
 
 // IsSambaInstalled checks if Samba is installed
 func IsSambaInstalled() bool {
+	if platform.IsMacOS() {
+		return isSambaInstalledMacOS()
+	}
+	return isSambaInstalledLinux()
+}
+
+// isSambaInstalledLinux checks if Samba is installed on Linux
+func isSambaInstalledLinux() bool {
 	// Check for smbd daemon
 	if _, err := exec.LookPath("smbd"); err != nil {
 		return false
@@ -60,8 +80,32 @@ func IsSambaInstalled() bool {
 	return true
 }
 
+// isSambaInstalledMacOS checks if Samba is installed on macOS
+func isSambaInstalledMacOS() bool {
+	// Check for Homebrew samba installation
+	if _, err := exec.LookPath("smbd"); err == nil {
+		return true
+	}
+
+	// Check if macOS built-in file sharing is available
+	cmd := exec.Command("launchctl", "list", "com.apple.smbd")
+	if err := cmd.Run(); err == nil {
+		return true
+	}
+
+	return false
+}
+
 // IsNFSInstalled checks if NFS server is installed
 func IsNFSInstalled() bool {
+	if platform.IsMacOS() {
+		return isNFSInstalledMacOS()
+	}
+	return isNFSInstalledLinux()
+}
+
+// isNFSInstalledLinux checks if NFS server is installed on Linux
+func isNFSInstalledLinux() bool {
 	// Check for exportfs
 	if _, err := exec.LookPath("exportfs"); err != nil {
 		return false
@@ -79,8 +123,25 @@ func IsNFSInstalled() bool {
 		strings.Contains(services, "nfs-kernel-server.service")
 }
 
+// isNFSInstalledMacOS checks if NFS server is available on macOS
+func isNFSInstalledMacOS() bool {
+	// macOS has built-in NFS server via nfsd
+	if _, err := exec.LookPath("nfsd"); err == nil {
+		return true
+	}
+	return false
+}
+
 // IsCIFSInstalled checks if CIFS utils are installed (for mounting)
 func IsCIFSInstalled() bool {
+	if platform.IsMacOS() {
+		// macOS has built-in SMB/CIFS support via mount_smbfs
+		if _, err := exec.LookPath("mount_smbfs"); err == nil {
+			return true
+		}
+		return false
+	}
+	// Linux uses mount.cifs
 	if _, err := exec.LookPath("mount.cifs"); err != nil {
 		return false
 	}
@@ -89,6 +150,14 @@ func IsCIFSInstalled() bool {
 
 // IsNFSClientInstalled checks if NFS client is installed (for mounting)
 func IsNFSClientInstalled() bool {
+	if platform.IsMacOS() {
+		// macOS has built-in NFS client support
+		if _, err := exec.LookPath("mount_nfs"); err == nil {
+			return true
+		}
+		return false
+	}
+	// Linux uses mount.nfs
 	if _, err := exec.LookPath("mount.nfs"); err != nil {
 		return false
 	}
@@ -98,6 +167,8 @@ func IsNFSClientInstalled() bool {
 // GetSambaPackages returns the package names for Samba based on package manager
 func GetSambaPackages(pm PackageManager) []string {
 	switch pm {
+	case HOMEBREW:
+		return []string{"samba"}
 	case APT:
 		return []string{"samba"}
 	case YUM, DNF:
@@ -114,6 +185,9 @@ func GetSambaPackages(pm PackageManager) []string {
 // GetNFSPackages returns the package names for NFS server based on package manager
 func GetNFSPackages(pm PackageManager) []string {
 	switch pm {
+	case HOMEBREW:
+		// macOS has built-in NFS server, no package needed
+		return []string{}
 	case APT:
 		return []string{"nfs-kernel-server"}
 	case YUM, DNF:
@@ -130,6 +204,9 @@ func GetNFSPackages(pm PackageManager) []string {
 // GetCIFSPackages returns the package names for CIFS client based on package manager
 func GetCIFSPackages(pm PackageManager) []string {
 	switch pm {
+	case HOMEBREW:
+		// macOS has built-in SMB/CIFS client support, no package needed
+		return []string{}
 	case APT:
 		return []string{"cifs-utils"}
 	case YUM, DNF:
@@ -146,6 +223,9 @@ func GetCIFSPackages(pm PackageManager) []string {
 // GetNFSClientPackages returns the package names for NFS client based on package manager
 func GetNFSClientPackages(pm PackageManager) []string {
 	switch pm {
+	case HOMEBREW:
+		// macOS has built-in NFS client support, no package needed
+		return []string{}
 	case APT:
 		return []string{"nfs-common"}
 	case YUM, DNF:
@@ -161,6 +241,10 @@ func GetNFSClientPackages(pm PackageManager) []string {
 
 // InstallPackages installs packages using the detected package manager
 func InstallPackages(packages []string) error {
+	if len(packages) == 0 {
+		return nil // Nothing to install (e.g., built-in macOS features)
+	}
+
 	pm := DetectPackageManager()
 	if pm == UNKNOWN {
 		return fmt.Errorf("unable to detect package manager")
@@ -169,6 +253,10 @@ func InstallPackages(packages []string) error {
 	var cmd *exec.Cmd
 
 	switch pm {
+	case HOMEBREW:
+		args := append([]string{"install"}, packages...)
+		cmd = exec.Command("brew", args...)
+
 	case APT:
 		// Update package list first
 		updateCmd := exec.Command("apt-get", "update")
@@ -206,8 +294,16 @@ func InstallPackages(packages []string) error {
 	return nil
 }
 
-// EnableService enables and starts a systemd service
+// EnableService enables and starts a service
 func EnableService(service string) error {
+	if platform.IsMacOS() {
+		return enableServiceMacOS(service)
+	}
+	return enableServiceLinux(service)
+}
+
+// enableServiceLinux enables and starts a systemd service on Linux
+func enableServiceLinux(service string) error {
 	// Enable the service
 	enableCmd := exec.Command("systemctl", "enable", service)
 	if err := enableCmd.Run(); err != nil {
@@ -223,9 +319,51 @@ func EnableService(service string) error {
 	return nil
 }
 
+// enableServiceMacOS enables and starts a service on macOS
+func enableServiceMacOS(service string) error {
+	// Handle common service names
+	switch service {
+	case "smbd", "smb", "samba":
+		// Try Homebrew services first
+		cmd := exec.Command("brew", "services", "start", "samba")
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+		// Fall back to direct start
+		cmd = exec.Command("smbd", "-D")
+		return cmd.Run()
+
+	case "nfsd", "nfs-server", "nfs":
+		// Enable and start nfsd
+		enableCmd := exec.Command("nfsd", "enable")
+		if err := enableCmd.Run(); err != nil {
+			return fmt.Errorf("failed to enable nfsd: %w", err)
+		}
+		startCmd := exec.Command("nfsd", "start")
+		if err := startCmd.Run(); err != nil {
+			return fmt.Errorf("failed to start nfsd: %w", err)
+		}
+		return nil
+
+	default:
+		// Try launchctl for other services
+		cmd := exec.Command("launchctl", "load", "-w", fmt.Sprintf("/System/Library/LaunchDaemons/%s.plist", service))
+		if err := cmd.Run(); err != nil {
+			// Try homebrew services
+			cmd = exec.Command("brew", "services", "start", service)
+			return cmd.Run()
+		}
+		return nil
+	}
+}
+
 // GetSambaServiceName returns the appropriate Samba service name
 func GetSambaServiceName() string {
-	// Check which service exists
+	if platform.IsMacOS() {
+		return "samba" // Homebrew service name
+	}
+
+	// Linux: Check which service exists
 	cmd := exec.Command("systemctl", "list-unit-files", "--type=service")
 	output, err := cmd.Output()
 	if err != nil {
@@ -244,6 +382,11 @@ func GetSambaServiceName() string {
 
 // GetNFSServiceName returns the appropriate NFS service name
 func GetNFSServiceName() string {
+	if platform.IsMacOS() {
+		return "nfsd" // macOS built-in NFS server
+	}
+
+	// Linux: Check which service exists
 	cmd := exec.Command("systemctl", "list-unit-files", "--type=service")
 	output, err := cmd.Output()
 	if err != nil {

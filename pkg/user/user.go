@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"sambo/pkg/platform"
 	"sambo/pkg/validate"
 )
 
@@ -218,6 +219,13 @@ func createSystemUser(username string) error {
 		return nil // User already exists
 	}
 
+	if platform.IsMacOS() {
+		return createSystemUserMacOS(username)
+	}
+	return createSystemUserLinux(username)
+}
+
+func createSystemUserLinux(username string) error {
 	// Create user with no login shell and no home directory
 	cmd := exec.Command("useradd", "-M", "-s", "/usr/sbin/nologin", username)
 	if err := cmd.Run(); err != nil {
@@ -227,7 +235,66 @@ func createSystemUser(username string) error {
 	return nil
 }
 
+func createSystemUserMacOS(username string) error {
+	// On macOS, use dscl to create users
+	// First, find the next available UID
+	uid, err := findNextUIDMacOS()
+	if err != nil {
+		return fmt.Errorf("failed to find available UID: %w", err)
+	}
+
+	// Create the user record
+	userPath := "/Users/" + username
+	cmds := [][]string{
+		{"dscl", ".", "-create", userPath},
+		{"dscl", ".", "-create", userPath, "UserShell", "/usr/bin/false"},
+		{"dscl", ".", "-create", userPath, "UniqueID", strconv.Itoa(uid)},
+		{"dscl", ".", "-create", userPath, "PrimaryGroupID", "20"}, // staff group
+		{"dscl", ".", "-create", userPath, "NFSHomeDirectory", "/var/empty"},
+	}
+
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to create user: %s: %w", string(output), err)
+		}
+	}
+
+	return nil
+}
+
+func findNextUIDMacOS() (int, error) {
+	// Get list of existing UIDs using dscl
+	cmd := exec.Command("dscl", ".", "-list", "/Users", "UniqueID")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	maxUID := 500 // Start from 501 for regular users
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if uid, err := strconv.Atoi(fields[len(fields)-1]); err == nil {
+				if uid > maxUID && uid < 65534 {
+					maxUID = uid
+				}
+			}
+		}
+	}
+
+	return maxUID + 1, nil
+}
+
 func removeSystemUser(username string) error {
+	if platform.IsMacOS() {
+		return removeSystemUserMacOS(username)
+	}
+	return removeSystemUserLinux(username)
+}
+
+func removeSystemUserLinux(username string) error {
 	cmd := exec.Command("userdel", username)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to remove user: %w", err)
@@ -236,7 +303,23 @@ func removeSystemUser(username string) error {
 	return nil
 }
 
+func removeSystemUserMacOS(username string) error {
+	userPath := "/Users/" + username
+	cmd := exec.Command("dscl", ".", "-delete", userPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to remove user: %s: %w", string(output), err)
+	}
+	return nil
+}
+
 func getSystemUID(username string) (int, error) {
+	if platform.IsMacOS() {
+		return getSystemUIDMacOS(username)
+	}
+	return getSystemUIDLinux(username)
+}
+
+func getSystemUIDLinux(username string) (int, error) {
 	file, err := os.Open("/etc/passwd")
 	if err != nil {
 		return 0, err
@@ -253,6 +336,32 @@ func getSystemUID(username string) (int, error) {
 				return 0, err
 			}
 			return uid, nil
+		}
+	}
+
+	return 0, fmt.Errorf("user not found")
+}
+
+func getSystemUIDMacOS(username string) (int, error) {
+	// Use dscl to get the UniqueID for a user
+	cmd := exec.Command("dscl", ".", "-read", "/Users/"+username, "UniqueID")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("user not found")
+	}
+
+	// Output format: "UniqueID: 501"
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "UniqueID:") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				uid, err := strconv.Atoi(parts[1])
+				if err != nil {
+					return 0, err
+				}
+				return uid, nil
+			}
 		}
 	}
 

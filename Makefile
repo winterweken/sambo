@@ -1,4 +1,4 @@
-# Makefile for Sambo - Linux Share Management CLI
+# Makefile for Sambo - Share Management CLI for Linux and macOS
 
 BINARY_NAME=sambo
 VERSION=1.5.0
@@ -8,7 +8,7 @@ INSTALL_PATH=/usr/local/bin
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all build clean install uninstall test help
+.PHONY: all build clean install uninstall test test-cover test-race help
 
 all: build
 
@@ -26,6 +26,8 @@ build-all:
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
 	GOOS=linux GOARCH=arm go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm .
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
 	@echo "All builds complete"
 
 # Install to system
@@ -52,6 +54,20 @@ test:
 	@echo "Running tests..."
 	go test -v ./...
 
+# Run tests with coverage
+test-cover:
+	@echo "Running tests with coverage..."
+	@mkdir -p $(BUILD_DIR)
+	go test -v -coverprofile=$(BUILD_DIR)/coverage.out ./...
+	go tool cover -func=$(BUILD_DIR)/coverage.out
+	@echo "Coverage report saved to $(BUILD_DIR)/coverage.out"
+	@echo "To view HTML report: go tool cover -html=$(BUILD_DIR)/coverage.out"
+
+# Run tests with race detector
+test-race:
+	@echo "Running tests with race detector..."
+	go test -v -race ./...
+
 # Format code
 fmt:
 	@echo "Formatting code..."
@@ -73,6 +89,8 @@ help:
 	@echo "  make uninstall   - Remove from system"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make test        - Run tests"
+	@echo "  make test-cover  - Run tests with coverage report"
+	@echo "  make test-race   - Run tests with race detector"
 	@echo "  make fmt         - Format code"
 	@echo "  make lint        - Run linter"
 	@echo "  make help        - Show this help"
