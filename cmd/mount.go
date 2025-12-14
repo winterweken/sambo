@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"sambo/pkg/mount"
+	"sambo/pkg/platform"
 	"strings"
 	"time"
 )
@@ -62,7 +63,11 @@ func mountList() error {
 			fmt.Printf("Active:      No (not mounted)\n")
 		}
 		if m.Persistent {
-			fmt.Printf("Persistent:  Yes (in /etc/fstab)\n")
+			configFile := "/etc/fstab"
+			if platform.IsMacOS() {
+				configFile = "/etc/auto_nfs"
+			}
+			fmt.Printf("Persistent:  Yes (in %s)\n", configFile)
 		} else {
 			fmt.Printf("Persistent:  No (temporary)\n")
 		}

@@ -75,6 +75,7 @@ func sambaCreate(args []string) error {
 	browseable := fs.Bool("browseable", true, "Make share browseable")
 	validUsers := fs.String("users", "", "Comma-separated list of valid users")
 	timeMachine := fs.Bool("timemachine", false, "Enable Apple Time Machine support")
+	tmMaxSize := fs.String("tmsize", "0", "Time Machine max backup size (e.g., 500G, 1T, 0=unlimited)")
 
 	fs.Parse(args)
 
@@ -84,12 +85,13 @@ func sambaCreate(args []string) error {
 	}
 
 	share := samba.Share{
-		Name:        *name,
-		Path:        *path,
-		Comment:     *comment,
-		ReadOnly:    *readOnly,
-		Browseable:  *browseable,
-		TimeMachine: *timeMachine,
+		Name:              *name,
+		Path:              *path,
+		Comment:           *comment,
+		ReadOnly:          *readOnly,
+		Browseable:        *browseable,
+		TimeMachine:       *timeMachine,
+		TimeMachineMaxSize: *tmMaxSize,
 	}
 
 	if *validUsers != "" {
@@ -187,6 +189,9 @@ func sambaShow(args []string) error {
 	fmt.Printf("Read Only:    %t\n", share.ReadOnly)
 	fmt.Printf("Browseable:   %t\n", share.Browseable)
 	fmt.Printf("Time Machine: %t\n", share.TimeMachine)
+	if share.TimeMachine && share.TimeMachineMaxSize != "" && share.TimeMachineMaxSize != "0" {
+		fmt.Printf("TM Max Size:  %s\n", share.TimeMachineMaxSize)
+	}
 	if len(share.ValidUsers) > 0 {
 		fmt.Printf("Valid Users:  %v\n", share.ValidUsers)
 	}
@@ -215,11 +220,13 @@ CREATE/MODIFY OPTIONS:
     -browseable                 Make share browseable (default: true)
     -users <user1,user2>        Comma-separated list of valid users
     -timemachine                Enable Apple Time Machine support (default: false)
+    -tmsize <size>              Time Machine max size (e.g., 500G, 1T, 0=unlimited)
 
 EXAMPLES:
     sambo samba list
     sambo samba create -name docs -path /mnt/documents -comment "Document Share"
     sambo samba create -name backup -path /mnt/backup -timemachine -comment "Time Machine Backup"
+    sambo samba create -name backup -path /mnt/backup -timemachine -tmsize 500G -comment "Limited TM"
     sambo samba create -name private -path /mnt/private -users alice,bob -readonly
     sambo samba modify -name docs -users alice,bob,charlie
     sambo samba remove -name docs

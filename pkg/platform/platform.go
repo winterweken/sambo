@@ -93,9 +93,17 @@ func FstabPath() string {
 	return "/etc/fstab"
 }
 
-// SupportsPersistentMounts returns whether the OS supports fstab-style persistent mounts
+// SupportsPersistentMounts returns whether the OS supports persistent mounts
 func SupportsPersistentMounts() bool {
-	return IsLinux()
+	return true // Both Linux (fstab) and macOS (auto_nfs) support persistence
+}
+
+// AutoNFSPath returns the path to auto_nfs (macOS only)
+func AutoNFSPath() string {
+	if IsMacOS() {
+		return "/etc/auto_nfs"
+	}
+	return ""
 }
 
 // ServiceManager returns the service management system name

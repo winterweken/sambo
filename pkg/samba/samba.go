@@ -136,13 +136,14 @@ func installSamba() error {
 
 // Share represents a Samba share configuration
 type Share struct {
-	Name        string
-	Path        string
-	Comment     string
-	ReadOnly    bool
-	Browseable  bool
-	ValidUsers  []string
-	TimeMachine bool
+	Name              string
+	Path              string
+	Comment           string
+	ReadOnly          bool
+	Browseable        bool
+	ValidUsers        []string
+	TimeMachine       bool
+	TimeMachineMaxSize string // e.g., "500G", "1T", "0" for unlimited
 }
 
 // List returns all configured Samba shares
@@ -215,6 +216,8 @@ func List() ([]Share, error) {
 				}
 			case "fruit:time machine":
 				currentShare.TimeMachine = strings.ToLower(value) == "yes"
+			case "fruit:time machine max size":
+				currentShare.TimeMachineMaxSize = value
 			}
 		}
 	}
@@ -329,7 +332,19 @@ func Create(share Share) error {
 		config += "   fruit:delete_empty_adfiles = yes\n"
 		config += "   fruit:aapl = yes\n"
 		config += "   fruit:time machine = yes\n"
-		config += "   fruit:time machine max size = 500G\n"
+		// Add max size if specified (0 or empty means unlimited)
+		maxSize := share.TimeMachineMaxSize
+		if maxSize == "" {
+			maxSize = "0" // Default to unlimited
+		}
+		if maxSize != "0" {
+			config += fmt.Sprintf("   fruit:time machine max size = %s\n", maxSize)
+		}
+		// Additional reliability options for Time Machine
+		config += "   durable handles = yes\n"
+		config += "   kernel oplocks = no\n"
+		config += "   kernel share modes = no\n"
+		config += "   posix locking = no\n"
 	}
 
 	if _, err := f.WriteString(config); err != nil {
@@ -506,9 +521,28 @@ func Modify(name string, updates map[string]interface{}) error {
 
 	if share.TimeMachine {
 		config += "   vfs objects = catia fruit streams_xattr\n"
+		config += "   fruit:metadata = stream\n"
+		config += "   fruit:model = MacSamba\n"
+		config += "   fruit:veto_appledouble = no\n"
+		config += "   fruit:posix_rename = yes\n"
+		config += "   fruit:zero_file_id = yes\n"
+		config += "   fruit:wipe_intentionally_left_blank_rfork = yes\n"
+		config += "   fruit:delete_empty_adfiles = yes\n"
 		config += "   fruit:aapl = yes\n"
 		config += "   fruit:time machine = yes\n"
-		config += "   fruit:time machine max size = 500G\n"
+		// Add max size if specified (0 or empty means unlimited)
+		maxSize := share.TimeMachineMaxSize
+		if maxSize == "" {
+			maxSize = "0" // Default to unlimited
+		}
+		if maxSize != "0" {
+			config += fmt.Sprintf("   fruit:time machine max size = %s\n", maxSize)
+		}
+		// Additional reliability options for Time Machine
+		config += "   durable handles = yes\n"
+		config += "   kernel oplocks = no\n"
+		config += "   kernel share modes = no\n"
+		config += "   posix locking = no\n"
 	}
 
 	// Combine: existing content (minus old share) + new share config
