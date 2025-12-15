@@ -44,6 +44,16 @@ func installComponent(component string) tea.Cmd {
 		case "nfs-client":
 			packages := system.GetNFSClientPackages(pm)
 			err = system.InstallPackages(packages)
+
+		case "avahi":
+			packages := system.GetAvahiPackages(pm)
+			err = system.InstallPackages(packages)
+			if err == nil {
+				serviceName := system.GetAvahiServiceName()
+				if serviceName != "" {
+					err = system.EnableService(serviceName)
+				}
+			}
 		}
 
 		return installMsg{
@@ -108,6 +118,12 @@ func (m model) viewDependencies() string {
 			installed:   system.IsNFSClientInstalled(),
 			packages:    system.GetNFSClientPackages(pm),
 		},
+		{
+			name:        "avahi",
+			displayName: "Avahi/Bonjour (for Time Machine discovery)",
+			installed:   system.IsAvahiInstalled(),
+			packages:    system.GetAvahiPackages(pm),
+		},
 	}
 
 	// Menu items
@@ -168,6 +184,7 @@ func (m model) handleDependenciesEnter() (tea.Model, tea.Cmd) {
 		{name: "nfs", installed: system.IsNFSInstalled()},
 		{name: "cifs", installed: system.IsCIFSInstalled()},
 		{name: "nfs-client", installed: system.IsNFSClientInstalled()},
+		{name: "avahi", installed: system.IsAvahiInstalled()},
 	}
 
 	// Back option

@@ -164,6 +164,20 @@ func IsNFSClientInstalled() bool {
 	return true
 }
 
+// IsAvahiInstalled checks if Avahi (mDNS/Bonjour) is installed
+// Avahi is required for Time Machine to auto-discover Samba shares
+func IsAvahiInstalled() bool {
+	if platform.IsMacOS() {
+		// macOS has built-in Bonjour (mDNSResponder)
+		return true
+	}
+	// Linux uses avahi-daemon
+	if _, err := exec.LookPath("avahi-daemon"); err != nil {
+		return false
+	}
+	return true
+}
+
 // GetSambaPackages returns the package names for Samba based on package manager
 func GetSambaPackages(pm PackageManager) []string {
 	switch pm {
@@ -237,6 +251,34 @@ func GetNFSClientPackages(pm PackageManager) []string {
 	default:
 		return []string{"nfs-utils"}
 	}
+}
+
+// GetAvahiPackages returns the package names for Avahi based on package manager
+// Avahi provides mDNS/Bonjour support for Time Machine discovery
+func GetAvahiPackages(pm PackageManager) []string {
+	switch pm {
+	case HOMEBREW:
+		// macOS has built-in Bonjour, no package needed
+		return []string{}
+	case APT:
+		return []string{"avahi-daemon"}
+	case YUM, DNF:
+		return []string{"avahi"}
+	case PACMAN:
+		return []string{"avahi"}
+	case ZYPPER:
+		return []string{"avahi"}
+	default:
+		return []string{"avahi"}
+	}
+}
+
+// GetAvahiServiceName returns the appropriate Avahi service name
+func GetAvahiServiceName() string {
+	if platform.IsMacOS() {
+		return "" // macOS uses built-in mDNSResponder
+	}
+	return "avahi-daemon"
 }
 
 // InstallPackages installs packages using the detected package manager
