@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"sambo/pkg/mount"
+	"sambo/pkg/platform"
 	"strings"
+	"time"
 )
 
 func handleMount(args []string) error {
@@ -24,6 +26,10 @@ func handleMount(args []string) error {
 		return mountNFS(args[1:])
 	case "unmount", "umount", "remove", "rm":
 		return mountUnmount(args[1:])
+	case "discover", "scan":
+		return mountDiscover(args[1:])
+	case "exports":
+		return mountExports(args[1:])
 	case "-h", "--help", "help":
 		printMountUsage()
 		return nil
@@ -51,8 +57,17 @@ func mountList() error {
 		fmt.Printf("Source:      %s\n", m.Source)
 		fmt.Printf("Mount Point: %s\n", m.MountPoint)
 		fmt.Printf("Options:     %s\n", m.Options)
+		if m.Active {
+			fmt.Printf("Active:      Yes (currently mounted)\n")
+		} else {
+			fmt.Printf("Active:      No (not mounted)\n")
+		}
 		if m.Persistent {
-			fmt.Printf("Persistent:  Yes (in /etc/fstab)\n")
+			configFile := "/etc/fstab"
+			if platform.IsMacOS() {
+				configFile = "/etc/auto_nfs"
+			}
+			fmt.Printf("Persistent:  Yes (in %s)\n", configFile)
 		} else {
 			fmt.Printf("Persistent:  No (temporary)\n")
 		}
@@ -181,6 +196,8 @@ SUBCOMMANDS:
     cifs, smb, samba            Mount a CIFS/SMB share
     nfs                         Mount an NFS share
     unmount, umount, remove     Unmount a share
+    discover, scan              Scan subnet for NFS servers
+    exports                     List exports from an NFS server
 
 CIFS/SMB MOUNT OPTIONS:
     -source <share>             Source share (//server/share)
@@ -234,7 +251,109 @@ EXAMPLES:
     # Unmount and remove from fstab
     sambo mount unmount \
       -mountpoint /mnt/share \
-      -remove-persistent`)
+      -remove-persistent
+
+DISCOVERY COMMANDS:
+    # Scan local subnet for NFS servers
+    sambo mount discover
+
+    # Scan a specific subnet
+    sambo mount discover -subnet 192.168.10.0/24
+
+    # List exports from a specific server
+    sambo mount exports 192.168.10.199
+    sambo mount exports -server myserver.local`)
+}
+
+func mountDiscover(args []string) error {
+	fs := flag.NewFlagSet("mount discover", flag.ExitOnError)
+	subnet := fs.String("subnet", "", "Subnet to scan (e.g., 192.168.1.0/24). Auto-detects if not specified.")
+	timeout := fs.Int("timeout", 500, "Timeout per host in milliseconds")
+
+	fs.Parse(args)
+
+	// Auto-detect subnet if not specified
+	subnetStr := *subnet
+	if subnetStr == "" {
+		detected, err := mount.GetLocalSubnet()
+		if err != nil {
+			return fmt.Errorf("failed to detect subnet: %w. Please specify with -subnet", err)
+		}
+		subnetStr = detected
+		fmt.Printf("Auto-detected subnet: %s\n", subnetStr)
+	}
+
+	fmt.Printf("Scanning for NFS servers on %s...\n", subnetStr)
+
+	servers, err := mount.DiscoverNFSServers(subnetStr, time.Duration(*timeout)*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("scan failed: %w", err)
+	}
+
+	if len(servers) == 0 {
+		fmt.Println("No NFS servers found")
+		return nil
+	}
+
+	fmt.Printf("\nFound %d NFS server(s):\n", len(servers))
+	fmt.Println("──────────────────────────────────────────────────────────")
+
+	for _, server := range servers {
+		fmt.Printf("Server: %s\n", server.IP)
+		for _, export := range server.Exports {
+			clients := "*"
+			if len(export.Clients) > 0 {
+				clients = strings.Join(export.Clients, " ")
+			}
+			fmt.Printf("  %s → %s\n", export.Path, clients)
+		}
+		fmt.Println("──────────────────────────────────────────────────────────")
+	}
+
+	return nil
+}
+
+func mountExports(args []string) error {
+	fs := flag.NewFlagSet("mount exports", flag.ExitOnError)
+	server := fs.String("server", "", "Server IP or hostname to query")
+
+	fs.Parse(args)
+
+	if *server == "" {
+		// Check if positional arg was provided
+		if fs.NArg() > 0 {
+			*server = fs.Arg(0)
+		} else {
+			return fmt.Errorf("server is required. Usage: sambo mount exports -server <ip> OR sambo mount exports <ip>")
+		}
+	}
+
+	fmt.Printf("Querying NFS exports on %s...\n\n", *server)
+
+	exports, err := mount.GetNFSExports(*server)
+	if err != nil {
+		return fmt.Errorf("failed to get exports: %w", err)
+	}
+
+	if len(exports) == 0 {
+		fmt.Println("No NFS exports found")
+		return nil
+	}
+
+	fmt.Printf("NFS Exports on %s:\n", *server)
+	fmt.Println("──────────────────────────────────────────────────────────")
+	fmt.Printf("%-35s %s\n", "PATH", "ALLOWED CLIENTS")
+	fmt.Println("──────────────────────────────────────────────────────────")
+
+	for _, export := range exports {
+		clients := "*"
+		if len(export.Clients) > 0 {
+			clients = strings.Join(export.Clients, " ")
+		}
+		fmt.Printf("%-35s %s\n", export.Path, clients)
+	}
+
+	return nil
 }
 
 func contains(slice []string, substr string) bool {

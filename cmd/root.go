@@ -22,8 +22,17 @@ func Execute() error {
 		printUsage()
 		return nil
 	case "version", "-v", "--version":
-		fmt.Println("sambo v1.5.0 - Linux Share Management CLI")
+		fmt.Println("sambo v1.5.1 - Share Management CLI for Linux and macOS")
 		return nil
+	}
+
+	// Mount subcommands that don't require root
+	if command == "mount" && len(os.Args) > 2 {
+		subCmd := os.Args[2]
+		if subCmd == "list" || subCmd == "ls" || subCmd == "discover" || subCmd == "scan" || subCmd == "exports" ||
+			subCmd == "-h" || subCmd == "--help" || subCmd == "help" {
+			return handleMount(os.Args[2:])
+		}
 	}
 
 	// Check if running as root for all other commands
@@ -49,7 +58,7 @@ func Execute() error {
 }
 
 func printUsage() {
-	fmt.Println(`sambo - Linux Share Management CLI
+	fmt.Println(`sambo - Share Management CLI for Linux and macOS
 
 USAGE:
     sambo <command> [options]

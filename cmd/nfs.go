@@ -3,6 +3,9 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"strings"
+
+	"sambo/pkg/confirm"
 	"sambo/pkg/nfs"
 )
 
@@ -96,7 +99,7 @@ func nfsCreate(args []string) error {
 	}
 	options = append(options, "no_subtree_check")
 
-	export.Options = joinStrings(options, ",")
+	export.Options = strings.Join(options, ",")
 
 	if err := nfs.Create(export); err != nil {
 		return fmt.Errorf("failed to create nfs export: %w", err)
@@ -109,11 +112,18 @@ func nfsCreate(args []string) error {
 func nfsRemove(args []string) error {
 	fs := flag.NewFlagSet("nfs remove", flag.ExitOnError)
 	path := fs.String("path", "", "Export path (required)")
+	yes := fs.Bool("y", false, "Skip confirmation prompt")
 	fs.Parse(args)
 
 	if *path == "" {
 		printNFSUsage()
 		return fmt.Errorf("path is required")
+	}
+
+	// Confirm deletion
+	if !confirm.Action(fmt.Sprintf("Remove NFS export '%s'?", *path), *yes) {
+		fmt.Println("Cancelled")
+		return nil
 	}
 
 	if err := nfs.Remove(*path); err != nil {
@@ -163,7 +173,7 @@ func nfsModify(args []string) error {
 	}
 	options = append(options, "no_subtree_check")
 
-	updates["options"] = joinStrings(options, ",")
+	updates["options"] = strings.Join(options, ",")
 
 	if err := nfs.Modify(*path, updates); err != nil {
 		return fmt.Errorf("failed to modify nfs export: %w", err)
@@ -224,13 +234,3 @@ EXAMPLES:
     sambo nfs show -path /mnt/backup`)
 }
 
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
-}

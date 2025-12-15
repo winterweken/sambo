@@ -3,37 +3,105 @@ package tui
 import (
 	"fmt"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
+	// Color palette
+	primaryColor   = lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}
+	secondaryColor = lipgloss.AdaptiveColor{Light: "#5A4FCF", Dark: "#7D6FD9"}
+	successColor   = lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"}
+	errorColor     = lipgloss.AdaptiveColor{Light: "#CC0000", Dark: "#FF4444"}
+	warningColor   = lipgloss.AdaptiveColor{Light: "#DD8800", Dark: "#FFAA00"}
+	infoColor      = lipgloss.AdaptiveColor{Light: "#0088CC", Dark: "#00AAFF"}
+	mutedColor     = lipgloss.AdaptiveColor{Light: "#626262", Dark: "#8B8B8B"}
+	borderColor    = lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}
+	bgColor        = lipgloss.AdaptiveColor{Light: "#FAFAFA", Dark: "#1A1A1A"}
+
+	// Title styles
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#7D56F4")).
+			Foreground(primaryColor).
+			Background(bgColor).
+			Padding(0, 2).
+			MarginTop(1).
+			MarginBottom(1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor)
+
+	subtitleStyle = lipgloss.NewStyle().
+			Foreground(secondaryColor).
+			Bold(true).
+			MarginBottom(1)
+
+	// Menu styles
+	menuStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#333", Dark: "#FFF"}).
+			PaddingLeft(2).
+			MarginLeft(2)
+
+	selectedStyle = lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Background(lipgloss.AdaptiveColor{Light: "#F0E6FF", Dark: "#2A1A3F"}).
+			Bold(true).
+			PaddingLeft(1).
+			PaddingRight(1).
+			MarginLeft(1)
+
+	menuBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Padding(1, 2).
 			MarginTop(1).
 			MarginBottom(1)
 
-	menuStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFF")).
-			PaddingLeft(2)
-
-	selectedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D56F4")).
-			Bold(true).
+	// Help and info styles
+	helpStyle = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Italic(true).
+			MarginTop(1).
 			PaddingLeft(1)
 
-	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262")).
+	helpBoxStyle = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(mutedColor).
+			Padding(0, 1).
 			MarginTop(1)
 
+	// Status message styles
 	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
-			Bold(true)
+			Foreground(errorColor).
+			Background(lipgloss.AdaptiveColor{Light: "#FFE6E6", Dark: "#3A1A1A"}).
+			Bold(true).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(errorColor)
 
 	successStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00")).
-			Bold(true)
+			Foreground(successColor).
+			Background(lipgloss.AdaptiveColor{Light: "#E6FFE6", Dark: "#1A3A1A"}).
+			Bold(true).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(successColor)
+
+	warningStyle = lipgloss.NewStyle().
+			Foreground(warningColor).
+			Background(lipgloss.AdaptiveColor{Light: "#FFF4E6", Dark: "#3A2A1A"}).
+			Bold(true).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(warningColor)
+
+	infoStyle = lipgloss.NewStyle().
+			Foreground(infoColor).
+			Background(lipgloss.AdaptiveColor{Light: "#E6F4FF", Dark: "#1A2A3A"}).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(infoColor)
 )
 
 type screen int
@@ -54,12 +122,15 @@ const (
 	screenMountList
 	screenMountCIFS
 	screenMountNFS
+	screenMountEdit
 	screenMountUnmount
+	screenMountDiscover
 	screenUserMenu
 	screenUserList
 	screenUserAdd
 	screenUserPassword
 	screenUserRemove
+	screenDependencies
 )
 
 type model struct {
@@ -76,15 +147,25 @@ type model struct {
 	selectModel *selectModel
 	inSelect    bool
 
+	// Spinner for long-running operations
+	spinner      spinner.Model
+	isInstalling bool
+	installMsg   string // What's being installed
+
 	// Data
 	selectedItem string
 }
 
 func newModel() model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(primaryColor)
+
 	return model{
 		currentScreen: screenMainMenu,
 		cursor:        0,
 		inForm:        false,
+		spinner:       s,
 	}
 }
 
@@ -93,6 +174,22 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle spinner updates when installing
+	if m.isInstalling {
+		switch msg := msg.(type) {
+		case spinner.TickMsg:
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		case installMsg:
+			m.isInstalling = false
+			m.installMsg = ""
+			return m.handleInstallMsg(msg)
+		}
+		// Ignore other input while installing
+		return m, nil
+	}
+
 	// Delegate to select if we're in select mode
 	if m.inSelect && m.selectModel != nil {
 		var cmd tea.Cmd
@@ -116,6 +213,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case installMsg:
+		m.isInstalling = false
+		m.installMsg = ""
+		return m.handleInstallMsg(msg)
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -137,7 +239,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentScreen = screenSambaMenu
 			case screenNFSList, screenNFSCreate, screenNFSModify, screenNFSRemove:
 				m.currentScreen = screenNFSMenu
-			case screenMountList, screenMountCIFS, screenMountNFS, screenMountUnmount:
+			case screenMountList, screenMountCIFS, screenMountNFS, screenMountEdit, screenMountUnmount, screenMountDiscover:
 				m.currentScreen = screenMountMenu
 			case screenUserList, screenUserAdd, screenUserPassword, screenUserRemove:
 				m.currentScreen = screenUserMenu
@@ -173,7 +275,7 @@ func (m model) View() string {
 
 	// Show form if we're in a form
 	if m.inForm && m.form != nil {
-		return m.form.View()
+		return m.form.ViewWithMessage(m.message, m.messageType)
 	}
 
 	switch m.currentScreen {
@@ -191,37 +293,93 @@ func (m model) View() string {
 		return m.viewMountMenu()
 	case screenMountList:
 		return m.viewMountList()
+	case screenMountDiscover:
+		return m.viewMountDiscover()
 	case screenUserMenu:
 		return m.viewUserMenu()
 	case screenUserList:
 		return m.viewUserList()
+	case screenDependencies:
+		return m.viewDependencies()
 	default:
 		return "Under construction...\n\nPress ESC to go back"
 	}
 }
 
-func (m model) viewMainMenu() string {
-	s := titleStyle.Render("Sambo - Linux Share Management") + "\n\n"
-
-	menuItems := []string{
-		"Manage Samba Shares",
-		"Manage NFS Exports",
-		"Manage Network Mounts",
-		"Manage Users",
-		"Exit",
+// Helper function to render messages
+func (m model) renderMessage() string {
+	if m.message == "" {
+		return ""
 	}
 
+	prefix := "\n\n"
+	switch m.messageType {
+	case "error":
+		return prefix + errorStyle.Render(" ✗ "+m.message+" ")
+	case "success":
+		return prefix + successStyle.Render(" ✓ "+m.message+" ")
+	case "warning":
+		return prefix + warningStyle.Render(" ⚠ "+m.message+" ")
+	default:
+		return prefix + infoStyle.Render(" ℹ "+m.message+" ")
+	}
+}
+
+func (m model) viewMainMenu() string {
+	s := titleStyle.Render(" Sambo - Linux Share Management ") + "\n\n"
+
+	menuItems := []string{
+		"📁 Manage Samba Shares",
+		"🌐 Manage NFS Exports",
+		"💾 Manage Network Mounts",
+		"👤 Manage Users",
+		"🔧 Check & Install Dependencies",
+		"🚪 Exit",
+	}
+
+	menuContent := ""
 	for i, item := range menuItems {
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
-			s += selectedStyle.Render(cursor+" "+item) + "\n"
+			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
 		} else {
-			s += menuStyle.Render(cursor+" "+item) + "\n"
+			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
 		}
 	}
 
-	s += "\n" + helpStyle.Render("↑/↓: Navigate • Enter: Select • Q: Quit")
+	s += menuBoxStyle.Render(menuContent)
+	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • Q: Quit")
+	s += m.renderMessage()
+
+	return s + "\n"
+}
+
+func (m model) viewSambaMenu() string {
+	s := titleStyle.Render(" Samba Share Management ") + "\n\n"
+
+	menuItems := []string{
+		"📋 List Shares",
+		"➕ Create Share",
+		"✏️  Modify Share",
+		"🗑️  Remove Share",
+		"⬅️  Back to Main Menu",
+	}
+
+	menuContent := ""
+	for i, item := range menuItems {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
+		} else {
+			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
+		}
+	}
+
+	s += menuBoxStyle.Render(menuContent)
+	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
 
 	if m.message != "" {
 		s += "\n\n"
@@ -235,106 +393,118 @@ func (m model) viewMainMenu() string {
 	return s + "\n"
 }
 
-func (m model) viewSambaMenu() string {
-	s := titleStyle.Render("Samba Share Management") + "\n\n"
-
-	menuItems := []string{
-		"List Shares",
-		"Create Share",
-		"Modify Share",
-		"Remove Share",
-		"Back to Main Menu",
-	}
-
-	for i, item := range menuItems {
-		cursor := " "
-		if m.cursor == i {
-			cursor = "▶"
-			s += selectedStyle.Render(cursor+" "+item) + "\n"
-		} else {
-			s += menuStyle.Render(cursor+" "+item) + "\n"
-		}
-	}
-
-	s += "\n" + helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
-
-	return s + "\n"
-}
-
 func (m model) viewNFSMenu() string {
-	s := titleStyle.Render("NFS Export Management") + "\n\n"
+	s := titleStyle.Render(" NFS Export Management ") + "\n\n"
 
 	menuItems := []string{
-		"List Exports",
-		"Create Export",
-		"Modify Export",
-		"Remove Export",
-		"Back to Main Menu",
+		"📋 List Exports",
+		"➕ Create Export",
+		"✏️  Modify Export",
+		"🗑️  Remove Export",
+		"⬅️  Back to Main Menu",
 	}
 
+	menuContent := ""
 	for i, item := range menuItems {
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
-			s += selectedStyle.Render(cursor+" "+item) + "\n"
+			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
 		} else {
-			s += menuStyle.Render(cursor+" "+item) + "\n"
+			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
 		}
 	}
 
-	s += "\n" + helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += menuBoxStyle.Render(menuContent)
+	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
+
+	if m.message != "" {
+		s += "\n\n"
+		if m.messageType == "error" {
+			s += errorStyle.Render("✗ " + m.message)
+		} else if m.messageType == "success" {
+			s += successStyle.Render("✓ " + m.message)
+		}
+	}
 
 	return s + "\n"
 }
 
 func (m model) viewMountMenu() string {
-	s := titleStyle.Render("Network Mount Management") + "\n\n"
+	s := titleStyle.Render(" Network Mount Management ") + "\n\n"
 
 	menuItems := []string{
-		"List Mounts",
-		"Mount CIFS/SMB Share",
-		"Mount NFS Share",
-		"Unmount Share",
-		"Back to Main Menu",
+		"📋 List Mounts",
+		"💾 Mount CIFS/SMB Share",
+		"🌐 Mount NFS Share",
+		"✏️  Edit Mount",
+		"⏏️  Unmount Share",
+		"🔍 Discover NFS Servers",
+		"⬅️  Back to Main Menu",
 	}
 
+	menuContent := ""
 	for i, item := range menuItems {
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
-			s += selectedStyle.Render(cursor+" "+item) + "\n"
+			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
 		} else {
-			s += menuStyle.Render(cursor+" "+item) + "\n"
+			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
 		}
 	}
 
-	s += "\n" + helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += menuBoxStyle.Render(menuContent)
+	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
+
+	if m.message != "" {
+		s += "\n\n"
+		if m.messageType == "error" {
+			s += errorStyle.Render("✗ " + m.message)
+		} else if m.messageType == "success" {
+			s += successStyle.Render("✓ " + m.message)
+		}
+	}
 
 	return s + "\n"
 }
 
 func (m model) viewUserMenu() string {
-	s := titleStyle.Render("User Management") + "\n\n"
+	s := titleStyle.Render(" User Management ") + "\n\n"
 
 	menuItems := []string{
-		"List Users",
-		"Add User",
-		"Change Password",
-		"Remove User",
-		"Back to Main Menu",
+		"📋 List Users",
+		"➕ Add User",
+		"🔑 Change Password",
+		"🗑️  Remove User",
+		"⬅️  Back to Main Menu",
 	}
 
+	menuContent := ""
 	for i, item := range menuItems {
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
-			s += selectedStyle.Render(cursor+" "+item) + "\n"
+			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
 		} else {
-			s += menuStyle.Render(cursor+" "+item) + "\n"
+			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
 		}
 	}
 
-	s += "\n" + helpStyle.Render("↑/↓: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += menuBoxStyle.Render(menuContent)
+	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
+
+	if m.message != "" {
+		s += "\n\n"
+		if m.messageType == "error" {
+			s += errorStyle.Render("✗ " + m.message)
+		} else if m.messageType == "success" {
+			s += successStyle.Render("✓ " + m.message)
+		}
+	}
 
 	return s + "\n"
 }
@@ -342,8 +512,12 @@ func (m model) viewUserMenu() string {
 func (m model) getMaxCursor() int {
 	switch m.currentScreen {
 	case screenMainMenu:
+		return 5 // 6 items including Dependencies (0-5)
+	case screenSambaMenu, screenNFSMenu, screenUserMenu:
 		return 4
-	case screenSambaMenu, screenNFSMenu, screenMountMenu, screenUserMenu:
+	case screenMountMenu:
+		return 6 // 7 items including Edit and Discover (0-6)
+	case screenDependencies:
 		return 4
 	default:
 		return 0
@@ -367,6 +541,9 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenUserMenu
 			m.cursor = 0
 		case 4:
+			m.currentScreen = screenDependencies
+			m.cursor = 0
+		case 5:
 			return m, tea.Quit
 		}
 
@@ -453,12 +630,31 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.inForm = true
 			return m, m.form.Init()
 		case 3:
-			m.currentScreen = screenMountUnmount
-			form := newMountUnmountForm()
-			m.form = &form
-			m.inForm = true
-			return m, m.form.Init()
+			// Show selection list for editing mount
+			m.currentScreen = screenMountEdit
+			selectModel, err := newMountEditSelect()
+			if err != nil {
+				m.message = fmt.Sprintf("Failed to list mounts: %v", err)
+				m.messageType = "error"
+				return m, nil
+			}
+			m.selectModel = &selectModel
+			m.inSelect = true
+			return m, nil
 		case 4:
+			// Show selection list of mounted shares
+			selectModel, err := newMountUnmountSelect()
+			if err != nil {
+				m.message = fmt.Sprintf("Failed to list mounts: %v", err)
+				m.messageType = "error"
+				return m, nil
+			}
+			m.selectModel = &selectModel
+			m.inSelect = true
+			return m, nil
+		case 5:
+			m.currentScreen = screenMountDiscover
+		case 6:
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
 		}
@@ -489,6 +685,9 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			m.currentScreen = screenMainMenu
 			m.cursor = 0
 		}
+
+	case screenDependencies:
+		return m.handleDependenciesEnter()
 	}
 
 	return m, nil

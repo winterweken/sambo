@@ -3,6 +3,9 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"strings"
+
+	"sambo/pkg/confirm"
 	"sambo/pkg/samba"
 )
 
@@ -48,13 +51,14 @@ func sambaList() error {
 	fmt.Println("Samba Shares:")
 	fmt.Println("──────────────────────────────────────────────────────────")
 	for _, share := range shares {
-		fmt.Printf("Name:        %s\n", share.Name)
-		fmt.Printf("Path:        %s\n", share.Path)
-		fmt.Printf("Comment:     %s\n", share.Comment)
-		fmt.Printf("Read Only:   %t\n", share.ReadOnly)
-		fmt.Printf("Browseable:  %t\n", share.Browseable)
+		fmt.Printf("Name:         %s\n", share.Name)
+		fmt.Printf("Path:         %s\n", share.Path)
+		fmt.Printf("Comment:      %s\n", share.Comment)
+		fmt.Printf("Read Only:    %t\n", share.ReadOnly)
+		fmt.Printf("Browseable:   %t\n", share.Browseable)
+		fmt.Printf("Time Machine: %t\n", share.TimeMachine)
 		if len(share.ValidUsers) > 0 {
-			fmt.Printf("Valid Users: %v\n", share.ValidUsers)
+			fmt.Printf("Valid Users:  %v\n", share.ValidUsers)
 		}
 		fmt.Println("──────────────────────────────────────────────────────────")
 	}
@@ -70,6 +74,8 @@ func sambaCreate(args []string) error {
 	readOnly := fs.Bool("readonly", false, "Make share read-only")
 	browseable := fs.Bool("browseable", true, "Make share browseable")
 	validUsers := fs.String("users", "", "Comma-separated list of valid users")
+	timeMachine := fs.Bool("timemachine", false, "Enable Apple Time Machine support")
+	tmMaxSize := fs.String("tmsize", "0", "Time Machine max backup size (e.g., 500G, 1T, 0=unlimited)")
 
 	fs.Parse(args)
 
@@ -79,11 +85,13 @@ func sambaCreate(args []string) error {
 	}
 
 	share := samba.Share{
-		Name:       *name,
-		Path:       *path,
-		Comment:    *comment,
-		ReadOnly:   *readOnly,
-		Browseable: *browseable,
+		Name:              *name,
+		Path:              *path,
+		Comment:           *comment,
+		ReadOnly:          *readOnly,
+		Browseable:        *browseable,
+		TimeMachine:       *timeMachine,
+		TimeMachineMaxSize: *tmMaxSize,
 	}
 
 	if *validUsers != "" {
@@ -101,11 +109,18 @@ func sambaCreate(args []string) error {
 func sambaRemove(args []string) error {
 	fs := flag.NewFlagSet("samba remove", flag.ExitOnError)
 	name := fs.String("name", "", "Share name (required)")
+	yes := fs.Bool("y", false, "Skip confirmation prompt")
 	fs.Parse(args)
 
 	if *name == "" {
 		printSambaUsage()
 		return fmt.Errorf("name is required")
+	}
+
+	// Confirm deletion
+	if !confirm.Action(fmt.Sprintf("Remove Samba share '%s'?", *name), *yes) {
+		fmt.Println("Cancelled")
+		return nil
 	}
 
 	if err := samba.Remove(*name); err != nil {
@@ -168,13 +183,17 @@ func sambaShow(args []string) error {
 		return fmt.Errorf("failed to get samba share: %w", err)
 	}
 
-	fmt.Printf("Name:        %s\n", share.Name)
-	fmt.Printf("Path:        %s\n", share.Path)
-	fmt.Printf("Comment:     %s\n", share.Comment)
-	fmt.Printf("Read Only:   %t\n", share.ReadOnly)
-	fmt.Printf("Browseable:  %t\n", share.Browseable)
+	fmt.Printf("Name:         %s\n", share.Name)
+	fmt.Printf("Path:         %s\n", share.Path)
+	fmt.Printf("Comment:      %s\n", share.Comment)
+	fmt.Printf("Read Only:    %t\n", share.ReadOnly)
+	fmt.Printf("Browseable:   %t\n", share.Browseable)
+	fmt.Printf("Time Machine: %t\n", share.TimeMachine)
+	if share.TimeMachine && share.TimeMachineMaxSize != "" && share.TimeMachineMaxSize != "0" {
+		fmt.Printf("TM Max Size:  %s\n", share.TimeMachineMaxSize)
+	}
 	if len(share.ValidUsers) > 0 {
-		fmt.Printf("Valid Users: %v\n", share.ValidUsers)
+		fmt.Printf("Valid Users:  %v\n", share.ValidUsers)
 	}
 
 	return nil
@@ -200,10 +219,14 @@ CREATE/MODIFY OPTIONS:
     -readonly                   Make share read-only (default: false)
     -browseable                 Make share browseable (default: true)
     -users <user1,user2>        Comma-separated list of valid users
+    -timemachine                Enable Apple Time Machine support (default: false)
+    -tmsize <size>              Time Machine max size (e.g., 500G, 1T, 0=unlimited)
 
 EXAMPLES:
     sambo samba list
     sambo samba create -name docs -path /mnt/documents -comment "Document Share"
+    sambo samba create -name backup -path /mnt/backup -timemachine -comment "Time Machine Backup"
+    sambo samba create -name backup -path /mnt/backup -timemachine -tmsize 500G -comment "Limited TM"
     sambo samba create -name private -path /mnt/private -users alice,bob -readonly
     sambo samba modify -name docs -users alice,bob,charlie
     sambo samba remove -name docs
@@ -214,20 +237,12 @@ func parseCSV(s string) []string {
 	if s == "" {
 		return nil
 	}
-	result := []string{}
-	current := ""
-	for _, ch := range s {
-		if ch == ',' {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-		} else if ch != ' ' {
-			current += string(ch)
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
 		}
-	}
-	if current != "" {
-		result = append(result, current)
 	}
 	return result
 }
