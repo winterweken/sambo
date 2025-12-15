@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"sambo/pkg/avahi"
 	"sambo/pkg/platform"
 	"sambo/pkg/service"
 	"sambo/pkg/validate"
@@ -358,7 +359,36 @@ func Create(share Share) error {
 	}
 
 	// Reload Samba
-	return reloadSamba()
+	if err := reloadSamba(); err != nil {
+		return err
+	}
+
+	// Update Avahi service for Time Machine discovery
+	if share.TimeMachine {
+		existingTMShares := getTimeMachineShareNames()
+		if err := avahi.AddTimeMachineShare(share.Name, existingTMShares); err != nil {
+			// Log warning but don't fail - Avahi is optional
+			fmt.Printf("Warning: Failed to update Avahi service for Time Machine discovery: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// getTimeMachineShareNames returns names of all Time Machine enabled shares
+func getTimeMachineShareNames() []string {
+	shares, err := List()
+	if err != nil {
+		return nil
+	}
+
+	var names []string
+	for _, share := range shares {
+		if share.TimeMachine {
+			names = append(names, share.Name)
+		}
+	}
+	return names
 }
 
 // Remove deletes a Samba share
@@ -368,16 +398,16 @@ func Remove(name string) error {
 		return err
 	}
 
-	// Check if share exists
-	found := false
+	// Check if share exists and if it's a Time Machine share
+	var foundShare *Share
 	for _, share := range shares {
 		if share.Name == name {
-			found = true
+			foundShare = &share
 			break
 		}
 	}
 
-	if !found {
+	if foundShare == nil {
 		return fmt.Errorf("share '%s' not found", name)
 	}
 
@@ -434,7 +464,20 @@ func Remove(name string) error {
 	}
 
 	// Reload Samba
-	return reloadSamba()
+	if err := reloadSamba(); err != nil {
+		return err
+	}
+
+	// Update Avahi service if this was a Time Machine share
+	if foundShare.TimeMachine {
+		remainingTMShares := getTimeMachineShareNames()
+		if err := avahi.RemoveTimeMachineShare(name, remainingTMShares); err != nil {
+			// Log warning but don't fail - Avahi is optional
+			fmt.Printf("Warning: Failed to update Avahi service: %v\n", err)
+		}
+	}
+
+	return nil
 }
 
 // Modify updates an existing share using atomic replacement
@@ -444,6 +487,9 @@ func Modify(name string, updates map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
+
+	// Track if Time Machine setting changed
+	oldTimeMachine := share.TimeMachine
 
 	// Apply updates
 	if comment, ok := updates["comment"].(string); ok {
@@ -457,6 +503,12 @@ func Modify(name string, updates map[string]interface{}) error {
 	}
 	if validUsers, ok := updates["validusers"].([]string); ok {
 		share.ValidUsers = validUsers
+	}
+	if timeMachine, ok := updates["timemachine"].(bool); ok {
+		share.TimeMachine = timeMachine
+	}
+	if timeMachineMaxSize, ok := updates["timemachinemaxsize"].(string); ok {
+		share.TimeMachineMaxSize = timeMachineMaxSize
 	}
 
 	// Backup config first
@@ -569,7 +621,27 @@ func Modify(name string, updates map[string]interface{}) error {
 	}
 
 	// Reload Samba
-	return reloadSamba()
+	if err := reloadSamba(); err != nil {
+		return err
+	}
+
+	// Update Avahi service if Time Machine setting changed
+	if oldTimeMachine != share.TimeMachine {
+		tmShares := getTimeMachineShareNames()
+		if share.TimeMachine {
+			// Time Machine was enabled
+			if err := avahi.AddTimeMachineShare(share.Name, tmShares); err != nil {
+				fmt.Printf("Warning: Failed to update Avahi service for Time Machine discovery: %v\n", err)
+			}
+		} else {
+			// Time Machine was disabled
+			if err := avahi.RemoveTimeMachineShare(share.Name, tmShares); err != nil {
+				fmt.Printf("Warning: Failed to update Avahi service: %v\n", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Helper functions
