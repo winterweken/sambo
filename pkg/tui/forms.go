@@ -549,6 +549,8 @@ func (fm formModel) submitForm(parent *model) (formModel, tea.Cmd) {
 		return fm.submitMountNFS(parent)
 	case "mount-unmount":
 		return fm.submitMountUnmount(parent)
+	case "mount-edit":
+		return fm.submitMountEdit(parent)
 	case "user-add":
 		return fm.submitUserAdd(parent)
 	case "user-password":
@@ -985,6 +987,77 @@ func newMountUnmountForm() formModel {
 	}
 }
 
+func newMountUnmountFormWithPath(mountPoint string) formModel {
+	inputs := make([]formField, 2)
+
+	inputs[0] = formField{
+		label:       "Mount Point",
+		input:       makeInput(mountPoint, "Path to unmount"),
+		description: "Path to the mounted directory",
+	}
+	inputs[0].input.SetValue(mountPoint)
+
+	inputs[1] = formField{
+		label:       "Remove Persistent",
+		checkbox:    true,
+		checkValue:  false,
+		description: "Also remove from /etc/fstab",
+	}
+
+	inputs[0].input.Focus()
+	inputs[0].input.PromptStyle = focusedStyle
+	inputs[0].input.TextStyle = focusedStyle
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   0,
+		submitIndex:  len(inputs),
+		formType:     "mount-unmount",
+		returnScreen: screenMountMenu,
+	}
+}
+
+func newMountEditForm(mountPoint string) (formModel, error) {
+	// Get mount info
+	targetMount, err := mount.Get(mountPoint)
+	if err != nil {
+		return formModel{}, err
+	}
+
+	inputs := make([]formField, 3)
+
+	// Mount point (read-only display)
+	inputs[0] = formField{
+		label:       fmt.Sprintf("Mount Point: %s", targetMount.MountPoint),
+		displayOnly: true,
+		description: "",
+	}
+
+	// Source (read-only display)
+	inputs[1] = formField{
+		label:       fmt.Sprintf("Source: %s (%s)", targetMount.Source, targetMount.Type),
+		displayOnly: true,
+		description: "",
+	}
+
+	// Persistent checkbox
+	inputs[2] = formField{
+		label:       "Persistent",
+		checkbox:    true,
+		checkValue:  targetMount.Persistent,
+		description: "Add to /etc/fstab for automatic mounting on boot",
+	}
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   2, // Start at persistent checkbox
+		submitIndex:  len(inputs),
+		formType:     "mount-edit",
+		returnScreen: screenMountMenu,
+		originalName: mountPoint,
+	}, nil
+}
+
 func (fm formModel) submitMountCIFS(parent *model) (formModel, tea.Cmd) {
 	source := fm.fields[0].input.Value()
 	mountPoint := fm.fields[1].input.Value()
@@ -1071,6 +1144,50 @@ func (fm formModel) submitMountUnmount(parent *model) (formModel, tea.Cmd) {
 	return fm, nil
 }
 
+func (fm formModel) submitMountEdit(parent *model) (formModel, tea.Cmd) {
+	persistent := fm.fields[2].checkValue
+	mountPoint := fm.originalName
+
+	// Get current mount info to check if persistence changed
+	currentMount, err := mount.Get(mountPoint)
+	if err != nil {
+		fm.message = fmt.Sprintf("Failed to get mount info: %v", err)
+		fm.messageType = "error"
+		return fm, nil
+	}
+
+	// Only update if persistence changed
+	if currentMount.Persistent != persistent {
+		if err := mount.SetPersistent(mountPoint, persistent); err != nil {
+			fm.message = fmt.Sprintf("Failed to update persistence: %v", err)
+			fm.messageType = "error"
+			return fm, nil
+		}
+		if persistent {
+			parent.message = fmt.Sprintf("Mount '%s' is now persistent", mountPoint)
+		} else {
+			parent.message = fmt.Sprintf("Mount '%s' is no longer persistent", mountPoint)
+		}
+		parent.messageType = "success"
+	} else {
+		parent.message = "No changes made"
+		parent.messageType = "info"
+	}
+
+	parent.currentScreen = fm.returnScreen
+	parent.inForm = false
+	return fm, nil
+}
+
+func (fm formModel) ViewWithMessage(parentMessage, parentMessageType string) string {
+	// Use parent message if form has no message
+	if fm.message == "" && parentMessage != "" {
+		fm.message = parentMessage
+		fm.messageType = parentMessageType
+	}
+	return fm.View()
+}
+
 func (fm formModel) View() string {
 	var b strings.Builder
 
@@ -1095,6 +1212,8 @@ func (fm formModel) View() string {
 		title = "Mount NFS Share"
 	case "mount-unmount":
 		title = "Unmount Network Share"
+	case "mount-edit":
+		title = "Edit Mount Settings"
 	case "user-add":
 		title = "Add User"
 	case "user-password":
