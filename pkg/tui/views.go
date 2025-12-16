@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sambo/pkg/mount"
 	"sambo/pkg/nfs"
-	"sambo/pkg/samba"
 	"sambo/pkg/user"
 	"strings"
 	"time"
@@ -55,7 +54,7 @@ var (
 func (m model) viewSambaList() string {
 	s := titleStyle.Render(" 📁 Samba Shares ") + "\n\n"
 
-	shares, err := samba.List()
+	shares, err := m.sambaManager.List()
 	if err != nil {
 		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading shares: %v ", err)) + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")

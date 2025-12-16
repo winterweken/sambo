@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sambo/pkg/samba"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -154,9 +155,12 @@ type model struct {
 
 	// Data
 	selectedItem string
+
+	// Managers
+	sambaManager *samba.Manager
 }
 
-func newModel() model {
+func newModel(sambaManager *samba.Manager) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(primaryColor)
@@ -166,6 +170,7 @@ func newModel() model {
 		cursor:        0,
 		inForm:        false,
 		spinner:       s,
+		sambaManager:  sambaManager,
 	}
 }
 
@@ -559,7 +564,7 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 			return m, m.form.Init()
 		case 2:
 			m.currentScreen = screenSambaModify
-			selectModel, err := newSambaModifySelect()
+			selectModel, err := newSambaModifySelect(m.sambaManager)
 			if err != nil {
 				m.message = fmt.Sprintf("Error: %v", err)
 				m.messageType = "error"
@@ -694,8 +699,8 @@ func (m model) handleEnter() (tea.Model, tea.Cmd) {
 }
 
 // Start launches the TUI
-func Start() error {
-	p := tea.NewProgram(newModel(), tea.WithAltScreen())
+func Start(sambaManager *samba.Manager) error {
+	p := tea.NewProgram(newModel(sambaManager), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

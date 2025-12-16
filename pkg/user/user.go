@@ -69,7 +69,7 @@ func List() ([]User, error) {
 
 	// Get UIDs from system
 	for i := range users {
-		uid, err := getSystemUID(users[i].Username)
+		uid, err := GetSystemUID(users[i].Username)
 		if err == nil {
 			users[i].UID = uid
 		}
@@ -119,7 +119,7 @@ func Add(username, password string, createSystem bool) error {
 		}
 	} else {
 		// Check if system user exists
-		if _, err := getSystemUID(username); err != nil {
+		if _, err := GetSystemUID(username); err != nil {
 			return fmt.Errorf("system user '%s' does not exist. Use -create-system flag or create manually", username)
 		}
 	}
@@ -215,7 +215,7 @@ func SetPassword(username, password string) error {
 
 func createSystemUser(username string) error {
 	// Check if user already exists
-	if _, err := getSystemUID(username); err == nil {
+	if _, err := GetSystemUID(username); err == nil {
 		return nil // User already exists
 	}
 
@@ -312,7 +312,9 @@ func removeSystemUserMacOS(username string) error {
 	return nil
 }
 
-func getSystemUID(username string) (int, error) {
+// GetSystemUID returns the system UID for a given username.
+// It is a variable to allow mocking in tests.
+var GetSystemUID = func(username string) (int, error) {
 	if platform.IsMacOS() {
 		return getSystemUIDMacOS(username)
 	}

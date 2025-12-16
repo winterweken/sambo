@@ -38,7 +38,7 @@ func handleSamba(args []string) error {
 }
 
 func sambaList() error {
-	shares, err := samba.List()
+	shares, err := sambaManager.List()
 	if err != nil {
 		return fmt.Errorf("failed to list samba shares: %w", err)
 	}
@@ -85,12 +85,12 @@ func sambaCreate(args []string) error {
 	}
 
 	share := samba.Share{
-		Name:              *name,
-		Path:              *path,
-		Comment:           *comment,
-		ReadOnly:          *readOnly,
-		Browseable:        *browseable,
-		TimeMachine:       *timeMachine,
+		Name:               *name,
+		Path:               *path,
+		Comment:            *comment,
+		ReadOnly:           *readOnly,
+		Browseable:         *browseable,
+		TimeMachine:        *timeMachine,
 		TimeMachineMaxSize: *tmMaxSize,
 	}
 
@@ -98,7 +98,7 @@ func sambaCreate(args []string) error {
 		share.ValidUsers = parseCSV(*validUsers)
 	}
 
-	if err := samba.Create(share); err != nil {
+	if err := sambaManager.Create(share); err != nil {
 		return fmt.Errorf("failed to create samba share: %w", err)
 	}
 
@@ -123,7 +123,7 @@ func sambaRemove(args []string) error {
 		return nil
 	}
 
-	if err := samba.Remove(*name); err != nil {
+	if err := sambaManager.Remove(*name); err != nil {
 		return fmt.Errorf("failed to remove samba share: %w", err)
 	}
 
@@ -160,7 +160,7 @@ func sambaModify(args []string) error {
 		updates["validusers"] = parseCSV(*validUsers)
 	}
 
-	if err := samba.Modify(*name, updates); err != nil {
+	if err := sambaManager.Modify(*name, updates); err != nil {
 		return fmt.Errorf("failed to modify samba share: %w", err)
 	}
 
@@ -178,7 +178,7 @@ func sambaShow(args []string) error {
 		return fmt.Errorf("name is required")
 	}
 
-	share, err := samba.Get(*name)
+	share, err := sambaManager.Get(*name)
 	if err != nil {
 		return fmt.Errorf("failed to get samba share: %w", err)
 	}
