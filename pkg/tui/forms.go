@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"sambo/pkg/mount"
 	"sambo/pkg/nfs"
 	"sambo/pkg/samba"
 	"sambo/pkg/user"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 var (
@@ -257,9 +258,9 @@ func newUserRemoveForm() formModel {
 	}
 }
 
-func newSambaModifyForm(shareName string) (formModel, error) {
+func newSambaModifyForm(m *samba.Manager, shareName string) (formModel, error) {
 	// Load existing share
-	share, err := samba.Get(shareName)
+	share, err := m.Get(shareName)
 	if err != nil {
 		return formModel{}, err
 	}
@@ -549,6 +550,8 @@ func (fm formModel) submitForm(parent *model) (formModel, tea.Cmd) {
 		return fm.submitMountNFS(parent)
 	case "mount-unmount":
 		return fm.submitMountUnmount(parent)
+	case "mount-edit":
+		return fm, nil // TODO: Implement submitMountEdit
 	case "user-add":
 		return fm.submitUserAdd(parent)
 	case "user-password":
@@ -572,6 +575,13 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
+	// Check if Samba is installed (non-interactive for TUI)
+	if err := parent.sambaManager.CheckInstalledInteractive(false); err != nil {
+		fm.message = fmt.Sprintf("%v", err)
+		fm.messageType = "error"
+		return fm, nil
+	}
+
 	share := samba.Share{
 		Name:        name,
 		Path:        path,
@@ -588,7 +598,7 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 		}
 	}
 
-	if err := samba.Create(share); err != nil {
+	if err := parent.sambaManager.Create(share); err != nil {
 		fm.message = fmt.Sprintf("Failed to create share: %v", err)
 		fm.messageType = "error"
 		return fm, nil
@@ -610,7 +620,7 @@ func (fm formModel) submitSambaRemove(parent *model) (formModel, tea.Cmd) {
 		return fm, nil
 	}
 
-	if err := samba.Remove(name); err != nil {
+	if err := parent.sambaManager.Remove(name); err != nil {
 		fm.message = fmt.Sprintf("Failed to remove share: %v", err)
 		fm.messageType = "error"
 		return fm, nil
@@ -631,7 +641,7 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 	timeMachine := fm.fields[5].checkValue
 
 	// Get the original share to keep path
-	share, err := samba.Get(fm.originalName)
+	share, err := parent.sambaManager.Get(fm.originalName)
 	if err != nil {
 		fm.message = fmt.Sprintf("Failed to load share: %v", err)
 		fm.messageType = "error"
@@ -654,13 +664,13 @@ func (fm formModel) submitSambaModify(parent *model) (formModel, tea.Cmd) {
 	}
 
 	// Remove and re-create the share
-	if err := samba.Remove(fm.originalName); err != nil {
+	if err := parent.sambaManager.Remove(fm.originalName); err != nil {
 		fm.message = fmt.Sprintf("Failed to modify share: %v", err)
 		fm.messageType = "error"
 		return fm, nil
 	}
 
-	if err := samba.Create(*share); err != nil {
+	if err := parent.sambaManager.Create(*share); err != nil {
 		fm.message = fmt.Sprintf("Failed to update share: %v", err)
 		fm.messageType = "error"
 		return fm, nil
@@ -1162,4 +1172,37 @@ func (fm formModel) View() string {
 	}
 
 	return b.String()
+}
+
+func (fm formModel) ViewWithMessage(msg string, msgType string) string {
+	// Update internal message if provided
+	if msg != "" {
+		fm.message = msg
+		fm.messageType = msgType
+	}
+	return fm.View()
+}
+
+func newMountUnmountFormWithPath(mountPoint string) formModel {
+	fm := newMountUnmountForm()
+	fm.fields[0].input.SetValue(mountPoint)
+	return fm
+}
+
+func newMountEditForm(mountPoint string) (formModel, error) {
+    // Basic placeholder implementation
+    inputs := make([]formField, 1)
+    inputs[0] = formField{
+        label: "Mount Point",
+        input: makeInput(mountPoint, "Mount point (read-only)"),
+        displayOnly: true,
+    }
+    
+    return formModel{
+        fields: inputs,
+        focusIndex: 0,
+        submitIndex: 1,
+        formType: "mount-edit", 
+        returnScreen: screenMountMenu,
+    }, nil
 }

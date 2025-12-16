@@ -4,11 +4,27 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sambo/pkg/samba"
+	"sambo/pkg/system"
 	"sambo/pkg/tui"
+)
+
+var (
+	// Global managers
+	sambaManager *samba.Manager
 )
 
 // Execute is the main entry point for the CLI
 func Execute() error {
+	// Initialize system interfaces
+	fs := &system.RealFileSystem{}
+	exec := &system.RealCommandExecutor{}
+	plat := &system.RealPlatform{}
+	avahi := &samba.RealAvahiManager{}
+
+	// Initialize managers
+	sambaManager = samba.NewManager(fs, exec, plat, avahi)
+
 	if len(os.Args) < 2 {
 		printUsage()
 		return nil
@@ -42,7 +58,7 @@ func Execute() error {
 
 	switch command {
 	case "tui":
-		return tui.Start()
+		return tui.Start(sambaManager)
 	case "samba":
 		return handleSamba(os.Args[2:])
 	case "nfs":

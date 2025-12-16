@@ -2,43 +2,78 @@ package samba
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"sambo/pkg/avahi"
-	"sambo/pkg/platform"
 	"sambo/pkg/service"
+	"sambo/pkg/system"
 	"sambo/pkg/validate"
 )
 
+// AvahiManager defines the interface for Avahi operations
+type AvahiManager interface {
+	AddTimeMachineShare(shareName string, existingShares []string) error
+	RemoveTimeMachineShare(shareName string, remainingShares []string) error
+}
+
+// RealAvahiManager implements AvahiManager using the avahi package
+type RealAvahiManager struct{}
+
+func (RealAvahiManager) AddTimeMachineShare(name string, existing []string) error {
+	return avahi.AddTimeMachineShare(name, existing)
+}
+
+func (RealAvahiManager) RemoveTimeMachineShare(name string, remaining []string) error {
+	return avahi.RemoveTimeMachineShare(name, remaining)
+}
+
+// Manager handles Samba configuration and operations
+type Manager struct {
+	fs       system.FileSystem
+	exec     system.CommandExecutor
+	platform system.Platform
+	avahi    AvahiManager
+}
+
+// NewManager creates a new Samba manager
+func NewManager(fs system.FileSystem, exec system.CommandExecutor, platform system.Platform, avahi AvahiManager) *Manager {
+	return &Manager{
+		fs:       fs,
+		exec:     exec,
+		platform: platform,
+		avahi:    avahi,
+	}
+}
+
 // getSambaConfPath returns the path to smb.conf
-func getSambaConfPath() string {
-	return platform.SambaConfigPath()
+func (m *Manager) getSambaConfPath() string {
+	return m.platform.SambaConfigPath()
 }
 
 // getSambaBackupPath returns the path to the smb.conf backup
-func getSambaBackupPath() string {
-	return platform.SambaConfigPath() + ".backup"
+func (m *Manager) getSambaBackupPath() string {
+	return m.platform.SambaConfigPath() + ".backup"
 }
 
 // getSambaConfigDir returns the directory containing smb.conf
-func getSambaConfigDir() string {
-	return platform.SambaConfigDir()
+func (m *Manager) getSambaConfigDir() string {
+	return m.platform.SambaConfigDir()
 }
 
 // CheckInstalled verifies that Samba is installed and configured
-func CheckInstalled() error {
-	return CheckInstalledInteractive(true)
+func (m *Manager) CheckInstalled() error {
+	return m.CheckInstalledInteractive(true)
 }
 
 // CheckInstalledInteractive verifies that Samba is installed and optionally offers to install it
-func CheckInstalledInteractive(interactive bool) error {
+func (m *Manager) CheckInstalledInteractive(interactive bool) error {
 	// Check if smbd binary exists
-	if _, err := exec.LookPath("smbd"); err != nil {
+	if _, err := m.exec.LookPath("smbd"); err != nil {
 		if !interactive {
-			if platform.IsMacOS() {
+			if m.platform.IsMacOS() {
 				return fmt.Errorf("Samba is not installed.\n\nPlease install Samba:\n  macOS: brew install samba")
 			}
 			return fmt.Errorf("Samba is not installed.\n\nPlease install Samba:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
@@ -57,20 +92,20 @@ func CheckInstalledInteractive(interactive bool) error {
 		}
 
 		// Detect package manager and install
-		if err := installSamba(); err != nil {
+		if err := m.installSamba(); err != nil {
 			return fmt.Errorf("failed to install Samba: %w", err)
 		}
 
 		fmt.Println("✓ Samba installed successfully")
 	}
 
-	confPath := getSambaConfPath()
-	configDir := getSambaConfigDir()
+	confPath := m.getSambaConfPath()
+	configDir := m.getSambaConfigDir()
 
 	// Check if config file exists, create if missing
-	if _, err := os.Stat(confPath); os.IsNotExist(err) {
+	if _, err := m.fs.Stat(confPath); os.IsNotExist(err) {
 		// Try to create directory
-		if err := os.MkdirAll(configDir, 0755); err != nil {
+		if err := m.fs.MkdirAll(configDir, 0755); err != nil {
 			return fmt.Errorf("Samba is installed but cannot create config directory: %w", err)
 		}
 
@@ -83,7 +118,7 @@ func CheckInstalledInteractive(interactive bool) error {
    dns proxy = no
 
 `
-		if err := os.WriteFile(confPath, []byte(basicConfig), 0644); err != nil {
+		if err := m.fs.WriteFile(confPath, []byte(basicConfig), 0644); err != nil {
 			return fmt.Errorf("Samba is installed but cannot create config file: %w", err)
 		}
 		fmt.Println("✓ Created basic Samba configuration")
@@ -92,76 +127,64 @@ func CheckInstalledInteractive(interactive bool) error {
 	return nil
 }
 
-func installSamba() error {
-	var cmd *exec.Cmd
-
+func (m *Manager) installSamba() error {
 	// Detect package manager
-	if platform.IsMacOS() {
-		if _, err := exec.LookPath("brew"); err == nil {
+	if m.platform.IsMacOS() {
+		if _, err := m.exec.LookPath("brew"); err == nil {
 			fmt.Println("Installing Samba using Homebrew...")
-			cmd = exec.Command("brew", "install", "samba")
+			return m.exec.Run("brew", "install", "samba")
 		} else {
 			return fmt.Errorf("Homebrew is not installed.\n\nPlease install Homebrew first: https://brew.sh\nThen run: brew install samba")
 		}
-	} else if _, err := exec.LookPath("apt-get"); err == nil {
+	} else if _, err := m.exec.LookPath("apt-get"); err == nil {
 		fmt.Println("Installing Samba using apt-get...")
-		cmd = exec.Command("apt-get", "install", "-y", "samba")
-	} else if _, err := exec.LookPath("yum"); err == nil {
+		return m.exec.Run("apt-get", "install", "-y", "samba")
+	} else if _, err := m.exec.LookPath("yum"); err == nil {
 		fmt.Println("Installing Samba using yum...")
-		cmd = exec.Command("yum", "install", "-y", "samba")
-	} else if _, err := exec.LookPath("dnf"); err == nil {
+		return m.exec.Run("yum", "install", "-y", "samba")
+	} else if _, err := m.exec.LookPath("dnf"); err == nil {
 		fmt.Println("Installing Samba using dnf...")
-		cmd = exec.Command("dnf", "install", "-y", "samba")
-	} else if _, err := exec.LookPath("pacman"); err == nil {
+		return m.exec.Run("dnf", "install", "-y", "samba")
+	} else if _, err := m.exec.LookPath("pacman"); err == nil {
 		fmt.Println("Installing Samba using pacman...")
-		cmd = exec.Command("pacman", "-S", "--noconfirm", "samba")
-	} else if _, err := exec.LookPath("zypper"); err == nil {
+		return m.exec.Run("pacman", "-S", "--noconfirm", "samba")
+	} else if _, err := m.exec.LookPath("zypper"); err == nil {
 		fmt.Println("Installing Samba using zypper...")
-		cmd = exec.Command("zypper", "install", "-y", "samba")
+		return m.exec.Run("zypper", "install", "-y", "samba")
 	} else {
-		if platform.IsMacOS() {
+		if m.platform.IsMacOS() {
 			return fmt.Errorf("could not detect package manager.\n\nPlease install Homebrew first: https://brew.sh\nThen run: brew install samba")
 		}
 		return fmt.Errorf("could not detect package manager.\n\nPlease install Samba manually:\n  Debian/Ubuntu: sudo apt-get install samba\n  RHEL/CentOS:   sudo yum install samba\n  Arch:          sudo pacman -S samba")
 	}
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Share represents a Samba share configuration
 type Share struct {
-	Name              string
-	Path              string
-	Comment           string
-	ReadOnly          bool
-	Browseable        bool
-	ValidUsers        []string
-	TimeMachine       bool
+	Name               string
+	Path               string
+	Comment            string
+	ReadOnly           bool
+	Browseable         bool
+	ValidUsers         []string
+	TimeMachine        bool
 	TimeMachineMaxSize string // e.g., "500G", "1T", "0" for unlimited
 }
 
 // List returns all configured Samba shares
-func List() ([]Share, error) {
-	confPath := getSambaConfPath()
-	file, err := os.Open(confPath)
+func (m *Manager) List() ([]Share, error) {
+	confPath := m.getSambaConfPath()
+	content, err := m.fs.ReadFile(confPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []Share{}, nil
 		}
 		return nil, fmt.Errorf("failed to open %s: %w", confPath, err)
 	}
-	defer file.Close()
 
 	var shares []Share
 	var currentShare *Share
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(bytes.NewReader(content))
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -236,8 +259,8 @@ func List() ([]Share, error) {
 }
 
 // Get retrieves a specific share by name
-func Get(name string) (*Share, error) {
-	shares, err := List()
+func (m *Manager) Get(name string) (*Share, error) {
+	shares, err := m.List()
 	if err != nil {
 		return nil, err
 	}
@@ -252,8 +275,10 @@ func Get(name string) (*Share, error) {
 }
 
 // Create adds a new Samba share
-func Create(share Share) error {
+func (m *Manager) Create(share Share) error {
 	// Check if Samba service is available
+	// TODO: Inject service checker too, but for now wrap in try/catch or assume it's there?
+	// The original code used a helper that just printed a warning. We can leave it for now.
 	service.WarnIfNotRunning("samba")
 
 	// Validate share name
@@ -267,106 +292,111 @@ func Create(share Share) error {
 	}
 
 	// Check if share already exists
-	existing, _ := Get(share.Name)
+	existing, _ := m.Get(share.Name)
 	if existing != nil {
 		return fmt.Errorf("share '%s' already exists", share.Name)
 	}
 
 	// Verify path exists
-	if _, err := os.Stat(share.Path); os.IsNotExist(err) {
+	if _, err := m.fs.Stat(share.Path); os.IsNotExist(err) {
 		return fmt.Errorf("path '%s' does not exist", share.Path)
 	}
 
 	// If Time Machine is enabled, ensure global config is set up
 	if share.TimeMachine {
-		if err := EnsureTimeMachineGlobalConfig(); err != nil {
+		if err := m.EnsureTimeMachineGlobalConfig(); err != nil {
 			return fmt.Errorf("failed to configure Time Machine global settings: %w", err)
 		}
 	}
 
 	// Backup config
-	if err := backupConfig(); err != nil {
+	if err := m.backupConfig(); err != nil {
 		return err
 	}
 
 	// Append share configuration
-	confPath := getSambaConfPath()
-	f, err := os.OpenFile(confPath, os.O_APPEND|os.O_WRONLY, 0644)
+	// Append share configuration
+	confPath := m.getSambaConfPath()
+
+	// Read existing content
+	existingContent, err := m.fs.ReadFile(confPath)
 	if err != nil {
-		return fmt.Errorf("failed to open config file: %w", err)
+		return fmt.Errorf("failed to read config file: %w", err)
 	}
-	defer f.Close()
 
 	// Write share configuration
-	config := fmt.Sprintf("\n[%s]\n", share.Name)
-	config += fmt.Sprintf("   path = %s\n", share.Path)
+	var config strings.Builder
+	config.Write(existingContent)
+	config.WriteString(fmt.Sprintf("\n[%s]\n", share.Name))
+	config.WriteString(fmt.Sprintf("   path = %s\n", share.Path))
 
 	if share.Comment != "" {
-		config += fmt.Sprintf("   comment = %s\n", share.Comment)
+		config.WriteString(fmt.Sprintf("   comment = %s\n", share.Comment))
 	}
 
 	if share.ReadOnly {
-		config += "   read only = yes\n"
+		config.WriteString("   read only = yes\n")
 	} else {
-		config += "   read only = no\n"
+		config.WriteString("   read only = no\n")
 	}
 
 	if share.Browseable {
-		config += "   browseable = yes\n"
+		config.WriteString("   browseable = yes\n")
 	} else {
-		config += "   browseable = no\n"
+		config.WriteString("   browseable = no\n")
 	}
 
 	if len(share.ValidUsers) > 0 {
-		config += fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " "))
+		config.WriteString(fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " ")))
 	}
 
 	// Add Time Machine support if enabled
 	if share.TimeMachine {
-		config += "   vfs objects = catia fruit streams_xattr\n"
-		config += "   fruit:metadata = stream\n"
-		config += "   fruit:model = MacSamba\n"
-		config += "   fruit:veto_appledouble = no\n"
-		config += "   fruit:posix_rename = yes\n"
-		config += "   fruit:zero_file_id = yes\n"
-		config += "   fruit:wipe_intentionally_left_blank_rfork = yes\n"
-		config += "   fruit:delete_empty_adfiles = yes\n"
-		config += "   fruit:aapl = yes\n"
-		config += "   fruit:time machine = yes\n"
+		config.WriteString("   vfs objects = catia fruit streams_xattr\n")
+		config.WriteString("   fruit:metadata = stream\n")
+		config.WriteString("   fruit:model = MacSamba\n")
+		config.WriteString("   fruit:veto_appledouble = no\n")
+		config.WriteString("   fruit:posix_rename = yes\n")
+		config.WriteString("   fruit:zero_file_id = yes\n")
+		config.WriteString("   fruit:wipe_intentionally_left_blank_rfork = yes\n")
+		config.WriteString("   fruit:delete_empty_adfiles = yes\n")
+		config.WriteString("   fruit:aapl = yes\n")
+		config.WriteString("   fruit:time machine = yes\n")
 		// Add max size if specified (0 or empty means unlimited)
 		maxSize := share.TimeMachineMaxSize
 		if maxSize == "" {
 			maxSize = "0" // Default to unlimited
 		}
 		if maxSize != "0" {
-			config += fmt.Sprintf("   fruit:time machine max size = %s\n", maxSize)
+			config.WriteString(fmt.Sprintf("   fruit:time machine max size = %s\n", maxSize))
 		}
 		// Additional reliability options for Time Machine
-		config += "   durable handles = yes\n"
-		config += "   kernel oplocks = no\n"
-		config += "   kernel share modes = no\n"
-		config += "   posix locking = no\n"
+		config.WriteString("   durable handles = yes\n")
+		config.WriteString("   kernel oplocks = no\n")
+		config.WriteString("   kernel share modes = no\n")
+		config.WriteString("   posix locking = no\n")
 	}
 
-	if _, err := f.WriteString(config); err != nil {
+	// Write back
+	if err := m.fs.WriteFile(confPath, []byte(config.String()), 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
 	// Test configuration
-	if err := testConfig(); err != nil {
-		restoreConfig()
+	if err := m.testConfig(); err != nil {
+		m.restoreConfig()
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	// Reload Samba
-	if err := reloadSamba(); err != nil {
+	if err := m.reloadSamba(); err != nil {
 		return err
 	}
 
 	// Update Avahi service for Time Machine discovery
 	if share.TimeMachine {
-		existingTMShares := getTimeMachineShareNames()
-		if err := avahi.AddTimeMachineShare(share.Name, existingTMShares); err != nil {
+		existingTMShares := m.getTimeMachineShareNames()
+		if err := m.avahi.AddTimeMachineShare(share.Name, existingTMShares); err != nil {
 			// Log warning but don't fail - Avahi is optional
 			fmt.Printf("Warning: Failed to update Avahi service for Time Machine discovery: %v\n", err)
 		}
@@ -376,8 +406,8 @@ func Create(share Share) error {
 }
 
 // getTimeMachineShareNames returns names of all Time Machine enabled shares
-func getTimeMachineShareNames() []string {
-	shares, err := List()
+func (m *Manager) getTimeMachineShareNames() []string {
+	shares, err := m.List()
 	if err != nil {
 		return nil
 	}
@@ -392,8 +422,8 @@ func getTimeMachineShareNames() []string {
 }
 
 // Remove deletes a Samba share
-func Remove(name string) error {
-	shares, err := List()
+func (m *Manager) Remove(name string) error {
+	shares, err := m.List()
 	if err != nil {
 		return err
 	}
@@ -412,14 +442,14 @@ func Remove(name string) error {
 	}
 
 	// Backup config
-	if err := backupConfig(); err != nil {
+	if err := m.backupConfig(); err != nil {
 		return err
 	}
 
-	confPath := getSambaConfPath()
+	confPath := m.getSambaConfPath()
 
 	// Read entire config
-	content, err := os.ReadFile(confPath)
+	content, err := m.fs.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
@@ -452,26 +482,27 @@ func Remove(name string) error {
 
 	// Write new config
 	newContent := strings.Join(newLines, "\n")
-	if err := os.WriteFile(confPath, []byte(newContent), 0644); err != nil {
-		restoreConfig()
+	if err := m.fs.WriteFile(confPath, []byte(newContent), 0644); err != nil {
+		m.restoreConfig()
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
 	// Test configuration
-	if err := testConfig(); err != nil {
-		restoreConfig()
+	if err := m.testConfig(); err != nil {
+		m.restoreConfig()
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	// Reload Samba
-	if err := reloadSamba(); err != nil {
+	// Reload Samba
+	if err := m.reloadSamba(); err != nil {
 		return err
 	}
 
 	// Update Avahi service if this was a Time Machine share
 	if foundShare.TimeMachine {
-		remainingTMShares := getTimeMachineShareNames()
-		if err := avahi.RemoveTimeMachineShare(name, remainingTMShares); err != nil {
+		remainingTMShares := m.getTimeMachineShareNames()
+		if err := m.avahi.RemoveTimeMachineShare(name, remainingTMShares); err != nil {
 			// Log warning but don't fail - Avahi is optional
 			fmt.Printf("Warning: Failed to update Avahi service: %v\n", err)
 		}
@@ -481,9 +512,9 @@ func Remove(name string) error {
 }
 
 // Modify updates an existing share using atomic replacement
-func Modify(name string, updates map[string]interface{}) error {
+func (m *Manager) Modify(name string, updates map[string]interface{}) error {
 	// Get current share
-	share, err := Get(name)
+	share, err := m.Get(name)
 	if err != nil {
 		return err
 	}
@@ -512,14 +543,14 @@ func Modify(name string, updates map[string]interface{}) error {
 	}
 
 	// Backup config first
-	if err := backupConfig(); err != nil {
+	if err := m.backupConfig(); err != nil {
 		return err
 	}
 
-	confPath := getSambaConfPath()
+	confPath := m.getSambaConfPath()
 
 	// Read entire config
-	content, err := os.ReadFile(confPath)
+	content, err := m.fs.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
@@ -548,94 +579,95 @@ func Modify(name string, updates map[string]interface{}) error {
 	}
 
 	// Build new share configuration
-	config := fmt.Sprintf("\n[%s]\n", share.Name)
-	config += fmt.Sprintf("   path = %s\n", share.Path)
+	var config strings.Builder
+	config.WriteString(fmt.Sprintf("\n[%s]\n", share.Name))
+	config.WriteString(fmt.Sprintf("   path = %s\n", share.Path))
 
 	if share.Comment != "" {
-		config += fmt.Sprintf("   comment = %s\n", share.Comment)
+		config.WriteString(fmt.Sprintf("   comment = %s\n", share.Comment))
 	}
 
 	if share.ReadOnly {
-		config += "   read only = yes\n"
+		config.WriteString("   read only = yes\n")
 	} else {
-		config += "   read only = no\n"
+		config.WriteString("   read only = no\n")
 	}
 
 	if share.Browseable {
-		config += "   browseable = yes\n"
+		config.WriteString("   browseable = yes\n")
 	} else {
-		config += "   browseable = no\n"
+		config.WriteString("   browseable = no\n")
 	}
 
 	if len(share.ValidUsers) > 0 {
-		config += fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " "))
+		config.WriteString(fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " ")))
 	}
 
 	if share.TimeMachine {
-		config += "   vfs objects = catia fruit streams_xattr\n"
-		config += "   fruit:metadata = stream\n"
-		config += "   fruit:model = MacSamba\n"
-		config += "   fruit:veto_appledouble = no\n"
-		config += "   fruit:posix_rename = yes\n"
-		config += "   fruit:zero_file_id = yes\n"
-		config += "   fruit:wipe_intentionally_left_blank_rfork = yes\n"
-		config += "   fruit:delete_empty_adfiles = yes\n"
-		config += "   fruit:aapl = yes\n"
-		config += "   fruit:time machine = yes\n"
+		config.WriteString("   vfs objects = catia fruit streams_xattr\n")
+		config.WriteString("   fruit:metadata = stream\n")
+		config.WriteString("   fruit:model = MacSamba\n")
+		config.WriteString("   fruit:veto_appledouble = no\n")
+		config.WriteString("   fruit:posix_rename = yes\n")
+		config.WriteString("   fruit:zero_file_id = yes\n")
+		config.WriteString("   fruit:wipe_intentionally_left_blank_rfork = yes\n")
+		config.WriteString("   fruit:delete_empty_adfiles = yes\n")
+		config.WriteString("   fruit:aapl = yes\n")
+		config.WriteString("   fruit:time machine = yes\n")
 		// Add max size if specified (0 or empty means unlimited)
 		maxSize := share.TimeMachineMaxSize
 		if maxSize == "" {
 			maxSize = "0" // Default to unlimited
 		}
 		if maxSize != "0" {
-			config += fmt.Sprintf("   fruit:time machine max size = %s\n", maxSize)
+			config.WriteString(fmt.Sprintf("   fruit:time machine max size = %s\n", maxSize))
 		}
 		// Additional reliability options for Time Machine
-		config += "   durable handles = yes\n"
-		config += "   kernel oplocks = no\n"
-		config += "   kernel share modes = no\n"
-		config += "   posix locking = no\n"
+		config.WriteString("   durable handles = yes\n")
+		config.WriteString("   kernel oplocks = no\n")
+		config.WriteString("   kernel share modes = no\n")
+		config.WriteString("   posix locking = no\n")
 	}
 
 	// Combine: existing content (minus old share) + new share config
-	newContent := strings.Join(newLines, "\n") + config
+	newContent := strings.Join(newLines, "\n") + config.String()
 
 	// Write to temp file first for atomic operation
 	tmpFile := confPath + ".tmp"
-	if err := os.WriteFile(tmpFile, []byte(newContent), 0644); err != nil {
+	if err := m.fs.WriteFile(tmpFile, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to write temp config: %w", err)
 	}
 
 	// Test configuration before applying
-	cmd := exec.Command("testparm", "-s", tmpFile)
-	if err := cmd.Run(); err != nil {
-		os.Remove(tmpFile)
+	if err := m.exec.Run("testparm", "-s", tmpFile); err != nil {
+		m.fs.Remove(tmpFile)
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	// Atomic rename
-	if err := os.Rename(tmpFile, confPath); err != nil {
-		os.Remove(tmpFile)
-		restoreConfig()
+	if err := m.fs.Rename(tmpFile, confPath); err != nil {
+		m.fs.Remove(tmpFile)
+		m.restoreConfig()
 		return fmt.Errorf("failed to apply config: %w", err)
 	}
 
 	// Reload Samba
-	if err := reloadSamba(); err != nil {
+	// Reload Samba
+	if err := m.reloadSamba(); err != nil {
 		return err
 	}
 
 	// Update Avahi service if Time Machine setting changed
 	if oldTimeMachine != share.TimeMachine {
-		tmShares := getTimeMachineShareNames()
+		tmShares := m.getTimeMachineShareNames()
 		if share.TimeMachine {
 			// Time Machine was enabled
-			if err := avahi.AddTimeMachineShare(share.Name, tmShares); err != nil {
+			if err := m.avahi.AddTimeMachineShare(share.Name, tmShares); err != nil {
 				fmt.Printf("Warning: Failed to update Avahi service for Time Machine discovery: %v\n", err)
 			}
 		} else {
 			// Time Machine was disabled
-			if err := avahi.RemoveTimeMachineShare(share.Name, tmShares); err != nil {
+			if err := m.avahi.RemoveTimeMachineShare(share.Name, tmShares); err != nil {
 				fmt.Printf("Warning: Failed to update Avahi service: %v\n", err)
 			}
 		}
@@ -646,55 +678,52 @@ func Modify(name string, updates map[string]interface{}) error {
 
 // Helper functions
 
-func backupConfig() error {
-	confPath := getSambaConfPath()
-	backupPath := getSambaBackupPath()
+func (m *Manager) backupConfig() error {
+	confPath := m.getSambaConfPath()
+	backupPath := m.getSambaBackupPath()
 
-	input, err := os.ReadFile(confPath)
+	input, err := m.fs.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
 
-	if err := os.WriteFile(backupPath, input, 0644); err != nil {
+	if err := m.fs.WriteFile(backupPath, input, 0644); err != nil {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 
 	return nil
 }
 
-func restoreConfig() error {
-	confPath := getSambaConfPath()
-	backupPath := getSambaBackupPath()
+func (m *Manager) restoreConfig() error {
+	confPath := m.getSambaConfPath()
+	backupPath := m.getSambaBackupPath()
 
-	input, err := os.ReadFile(backupPath)
+	input, err := m.fs.ReadFile(backupPath)
 	if err != nil {
 		return fmt.Errorf("failed to read backup: %w", err)
 	}
 
-	if err := os.WriteFile(confPath, input, 0644); err != nil {
+	if err := m.fs.WriteFile(confPath, input, 0644); err != nil {
 		return fmt.Errorf("failed to restore config: %w", err)
 	}
 
 	return nil
 }
 
-func testConfig() error {
-	confPath := getSambaConfPath()
-	cmd := exec.Command("testparm", "-s", confPath)
-	if err := cmd.Run(); err != nil {
+func (m *Manager) testConfig() error {
+	confPath := m.getSambaConfPath()
+	if err := m.exec.Run("testparm", "-s", confPath); err != nil {
 		return fmt.Errorf("configuration test failed: %w", err)
 	}
 	return nil
 }
 
-func reloadSamba() error {
-	if platform.IsMacOS() {
+func (m *Manager) reloadSamba() error {
+	if m.platform.IsMacOS() {
 		// macOS: Send SIGHUP to smbd or use brew services
-		cmd := exec.Command("pkill", "-HUP", "smbd")
-		if err := cmd.Run(); err != nil {
+		if err := m.exec.Run("pkill", "-HUP", "smbd"); err != nil {
 			// Try restarting via brew services
-			cmd = exec.Command("brew", "services", "restart", "samba")
-			if err := cmd.Run(); err != nil {
+			if err := m.exec.Run("brew", "services", "restart", "samba"); err != nil {
 				return fmt.Errorf("failed to reload samba: %w", err)
 			}
 		}
@@ -702,11 +731,9 @@ func reloadSamba() error {
 	}
 
 	// Linux: Try systemctl first
-	cmd := exec.Command("systemctl", "reload", "smbd")
-	if err := cmd.Run(); err != nil {
+	if err := m.exec.Run("systemctl", "reload", "smbd"); err != nil {
 		// Fallback to service command
-		cmd = exec.Command("service", "smbd", "reload")
-		if err := cmd.Run(); err != nil {
+		if err := m.exec.Run("service", "smbd", "reload"); err != nil {
 			return fmt.Errorf("failed to reload samba: %w", err)
 		}
 	}
@@ -714,10 +741,10 @@ func reloadSamba() error {
 }
 
 // EnsureTimeMachineGlobalConfig checks and adds necessary global configuration for Time Machine
-func EnsureTimeMachineGlobalConfig() error {
-	confPath := getSambaConfPath()
+func (m *Manager) EnsureTimeMachineGlobalConfig() error {
+	confPath := m.getSambaConfPath()
 
-	content, err := os.ReadFile(confPath)
+	content, err := m.fs.ReadFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
 	}
@@ -736,7 +763,7 @@ func EnsureTimeMachineGlobalConfig() error {
 	}
 
 	// Backup config
-	if err := backupConfig(); err != nil {
+	if err := m.backupConfig(); err != nil {
 		return err
 	}
 
@@ -795,14 +822,14 @@ func EnsureTimeMachineGlobalConfig() error {
 
 	// Write updated config
 	newContent := strings.Join(newLines, "\n")
-	if err := os.WriteFile(confPath, []byte(newContent), 0644); err != nil {
-		restoreConfig()
+	if err := m.fs.WriteFile(confPath, []byte(newContent), 0644); err != nil {
+		m.restoreConfig()
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
 	// Test configuration
-	if err := testConfig(); err != nil {
-		restoreConfig()
+	if err := m.testConfig(); err != nil {
+		m.restoreConfig()
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 

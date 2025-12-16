@@ -2,10 +2,10 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 	"sambo/pkg/mount"
 	"sambo/pkg/nfs"
 	"sambo/pkg/samba"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,8 +18,8 @@ type selectModel struct {
 	nextScreen   screen
 }
 
-func newSambaModifySelect() (selectModel, error) {
-	shares, err := samba.List()
+func newSambaModifySelect(m *samba.Manager) (selectModel, error) {
+	shares, err := m.List()
 	if err != nil {
 		return selectModel{}, err
 	}
@@ -136,7 +136,7 @@ func (sm selectModel) Update(msg tea.Msg, parent *model) (selectModel, tea.Cmd) 
 
 			switch sm.selectType {
 			case "samba-modify":
-				form, err := newSambaModifyForm(selectedItem)
+				form, err := newSambaModifyForm(parent.sambaManager, selectedItem)
 				if err != nil {
 					parent.message = fmt.Sprintf("Failed to load share: %v", err)
 					parent.messageType = "error"
