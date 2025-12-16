@@ -10,6 +10,7 @@ import (
 	"sambo/pkg/avahi"
 	"sambo/pkg/service"
 	"sambo/pkg/system"
+	"sambo/pkg/user"
 	"sambo/pkg/validate"
 )
 
@@ -307,6 +308,15 @@ func (m *Manager) Create(share Share) error {
 		if err := m.EnsureTimeMachineGlobalConfig(); err != nil {
 			return fmt.Errorf("failed to configure Time Machine global settings: %w", err)
 		}
+	}
+
+	// Apply permissions (especially for Time Machine)
+	if err := m.FixPermissions(share); err != nil {
+		// Log warning but don't fail creation? User might fix it later.
+		// Or fail? "Failed to set permissions".
+		// Given user context "we also need to set the permissions", I should probably warn or fail.
+		// I'll return error to be safe.
+		return fmt.Errorf("failed to set share permissions: %w", err)
 	}
 
 	// Backup config
@@ -671,6 +681,42 @@ func (m *Manager) Modify(name string, updates map[string]interface{}) error {
 				fmt.Printf("Warning: Failed to update Avahi service: %v\n", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// FixPermissions enforces correct ownership and permissions for the share directory.
+func (m *Manager) FixPermissions(share Share) error {
+	// Only apply logic for Time Machine shares or explicit request
+	if !share.TimeMachine {
+		return nil
+	}
+
+	if len(share.ValidUsers) == 0 {
+		return fmt.Errorf("Time Machine share has no valid users to assign ownership")
+	}
+
+	// Verify path exists
+	if _, err := m.fs.Stat(share.Path); os.IsNotExist(err) {
+		return fmt.Errorf("path '%s' does not exist", share.Path)
+	}
+
+	// Get UID of the primary user
+	owner := share.ValidUsers[0]
+	uid, err := user.GetSystemUID(owner)
+	if err != nil {
+		return fmt.Errorf("failed to resolve UID for user '%s': %w", owner, err)
+	}
+
+	// Chown to user (preserve group)
+	if err := m.fs.Chown(share.Path, uid, -1); err != nil {
+		return fmt.Errorf("failed to chown directory: %w", err)
+	}
+
+	// Chmod to 0700 (User only)
+	if err := m.fs.Chmod(share.Path, 0700); err != nil {
+		return fmt.Errorf("failed to chmod directory: %w", err)
 	}
 
 	return nil

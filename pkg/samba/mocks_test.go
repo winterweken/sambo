@@ -19,6 +19,15 @@ type MockFileSystem struct {
 		Path string
 		Data []byte
 	}
+	ChownCalls []struct {
+		Path string
+		Uid  int
+		Gid  int
+	}
+	ChmodCalls []struct {
+		Path string
+		Perm fs.FileMode
+	}
 }
 
 func NewMockFileSystem() *MockFileSystem {
@@ -31,6 +40,15 @@ func NewMockFileSystem() *MockFileSystem {
 		WriteCalls: []struct {
 			Path string
 			Data []byte
+		}{},
+		ChownCalls: []struct {
+			Path string
+			Uid  int
+			Gid  int
+		}{},
+		ChmodCalls: []struct {
+			Path string
+			Perm fs.FileMode
 		}{},
 	}
 }
@@ -81,6 +99,23 @@ func (m *MockFileSystem) Rename(oldpath, newpath string) error {
 func (m *MockFileSystem) Remove(name string) error {
 	m.RemoveCalls = append(m.RemoveCalls, name)
 	delete(m.Files, name)
+	return nil
+}
+
+func (m *MockFileSystem) Chown(name string, uid, gid int) error {
+	m.ChownCalls = append(m.ChownCalls, struct {
+		Path string
+		Uid  int
+		Gid  int
+	}{name, uid, gid})
+	return nil
+}
+
+func (m *MockFileSystem) Chmod(name string, perm fs.FileMode) error {
+	m.ChmodCalls = append(m.ChmodCalls, struct {
+		Path string
+		Perm fs.FileMode
+	}{name, perm})
 	return nil
 }
 

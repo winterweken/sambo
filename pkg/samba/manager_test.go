@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"sambo/pkg/user"
 )
 
 const tConfPath = "/etc/samba/smb.conf"
@@ -82,12 +84,20 @@ func TestCreate(t *testing.T) {
 	mockFS.MkdirAll("/new/path", 0755)
 
 	newShare := Share{
-		Name:       "newshare",
-		Path:       "/new/path",
-		Comment:    "New Share",
-		ReadOnly:   false,
-		Browseable: true,
-		ValidUsers: []string{"alice", "bob"},
+		Name:        "newshare",
+		Path:        "/new/path",
+		Comment:     "New Share",
+		ReadOnly:    false,
+		Browseable:  true,
+		ValidUsers:  []string{"alice", "bob"},
+		TimeMachine: true, // Enable Time Machine to trigger permissions logic
+	}
+
+	// Mock user.GetSystemUID
+	origGetUID := user.GetSystemUID
+	defer func() { user.GetSystemUID = origGetUID }()
+	user.GetSystemUID = func(name string) (int, error) {
+		return 1000, nil
 	}
 
 	err := manager.Create(newShare)
@@ -243,5 +253,58 @@ func TestReload_Linux(t *testing.T) {
 	}
 	if !found {
 		t.Error("Expected systemctl call on Linux reload")
+	}
+}
+
+func TestFixPermissions(t *testing.T) {
+	manager, mockFS, _, _, _ := setupManager()
+
+	// Mock user.GetSystemUID
+	origGetUID := user.GetSystemUID
+	defer func() { user.GetSystemUID = origGetUID }()
+	user.GetSystemUID = func(name string) (int, error) {
+		if name == "alice" {
+			return 1001, nil
+		}
+		return 0, fmt.Errorf("user not found")
+	}
+
+	// Create dummy directory
+	mockFS.MkdirAll("/data/tm", 0755)
+
+	share := Share{
+		Name:        "timemachine",
+		Path:        "/data/tm",
+		TimeMachine: true,
+		ValidUsers:  []string{"alice"},
+	}
+
+	err := manager.FixPermissions(share)
+	if err != nil {
+		t.Fatalf("FixPermissions() error = %v", err)
+	}
+
+	// Verify Chown called
+	chownFound := false
+	for _, call := range mockFS.ChownCalls {
+		if call.Path == "/data/tm" && call.Uid == 1001 && call.Gid == -1 {
+			chownFound = true
+			break
+		}
+	}
+	if !chownFound {
+		t.Error("Expected Chown(/data/tm, 1001, -1)")
+	}
+
+	// Verify Chmod called
+	chmodFound := false
+	for _, call := range mockFS.ChmodCalls {
+		if call.Path == "/data/tm" && call.Perm == 0700 {
+			chmodFound = true
+			break
+		}
+	}
+	if !chmodFound {
+		t.Error("Expected Chmod(/data/tm, 0700)")
 	}
 }
