@@ -370,6 +370,7 @@ func (m *Manager) Create(share Share) error {
 		config.WriteString("   fruit:zero_file_id = yes\n")
 		config.WriteString("   fruit:wipe_intentionally_left_blank_rfork = yes\n")
 		config.WriteString("   fruit:delete_empty_adfiles = yes\n")
+		config.WriteString("   fruit:nfs_aces = no\n")
 		config.WriteString("   fruit:aapl = yes\n")
 		config.WriteString("   fruit:time machine = yes\n")
 		// Add max size if specified (0 or empty means unlimited)
