@@ -8,7 +8,7 @@ INSTALL_PATH=/usr/local/bin
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all build clean install uninstall test test-cover test-race help
+.PHONY: all build build-all release clean install uninstall test test-cover test-race fmt lint help
 
 all: build
 
@@ -29,6 +29,44 @@ build-all:
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
 	@echo "All builds complete"
+
+# Create release packages with binaries and scripts
+release: build-all
+	@echo "Creating release packages..."
+	@mkdir -p $(BUILD_DIR)/release
+	@# Linux AMD64
+	@mkdir -p $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-amd64
+	@cp $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-amd64/$(BINARY_NAME)
+	@cp -r scripts $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-amd64/
+	@cp README.md $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-amd64/
+	@tar -czf $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-amd64.tar.gz -C $(BUILD_DIR)/release $(BINARY_NAME)-$(VERSION)-linux-amd64
+	@# Linux ARM64
+	@mkdir -p $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm64
+	@cp $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm64/$(BINARY_NAME)
+	@cp -r scripts $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm64/
+	@cp README.md $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm64/
+	@tar -czf $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm64.tar.gz -C $(BUILD_DIR)/release $(BINARY_NAME)-$(VERSION)-linux-arm64
+	@# Linux ARM
+	@mkdir -p $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm
+	@cp $(BUILD_DIR)/$(BINARY_NAME)-linux-arm $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm/$(BINARY_NAME)
+	@cp -r scripts $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm/
+	@cp README.md $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm/
+	@tar -czf $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-linux-arm.tar.gz -C $(BUILD_DIR)/release $(BINARY_NAME)-$(VERSION)-linux-arm
+	@# Darwin AMD64
+	@mkdir -p $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-amd64
+	@cp $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-amd64/$(BINARY_NAME)
+	@cp -r scripts $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-amd64/
+	@cp README.md $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-amd64/
+	@tar -czf $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-amd64.tar.gz -C $(BUILD_DIR)/release $(BINARY_NAME)-$(VERSION)-darwin-amd64
+	@# Darwin ARM64
+	@mkdir -p $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-arm64
+	@cp $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-arm64/$(BINARY_NAME)
+	@cp -r scripts $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-arm64/
+	@cp README.md $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-arm64/
+	@tar -czf $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-darwin-arm64.tar.gz -C $(BUILD_DIR)/release $(BINARY_NAME)-$(VERSION)-darwin-arm64
+	@# Cleanup temp dirs
+	@rm -rf $(BUILD_DIR)/release/$(BINARY_NAME)-$(VERSION)-*-*/
+	@echo "Release packages created in $(BUILD_DIR)/release/"
 
 # Install to system
 install: build
@@ -80,11 +118,12 @@ lint:
 
 # Show help
 help:
-	@echo "Sambo - Linux Share Management CLI"
+	@echo "Sambo - Share Management CLI for Linux and macOS"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  make build       - Build the binary (default)"
 	@echo "  make build-all   - Build for multiple architectures"
+	@echo "  make release     - Create release packages with scripts"
 	@echo "  make install     - Build and install to $(INSTALL_PATH)"
 	@echo "  make uninstall   - Remove from system"
 	@echo "  make clean       - Remove build artifacts"
