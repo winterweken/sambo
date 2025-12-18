@@ -28,9 +28,56 @@ A command-line interface tool for managing Samba (SMB/CIFS) and NFS shares on Li
 - `nfs-kernel-server` or `nfs-server` package installed
 - `exportfs` command available
 
+### macOS Client Requirements
+
+For macOS clients connecting to sambo-managed shares, run the client setup script to verify all requirements:
+
+```bash
+# If sambo is installed
+/usr/local/share/sambo/macos-client-setup.sh
+
+# Or download and run directly
+curl -fsSL https://raw.githubusercontent.com/winterweken/sambo/main/scripts/macos-client-setup.sh | bash
+```
+
+The script checks:
+- SMB/CIFS tools (`mount_smbfs`, `smbutil`)
+- NFS tools (`mount_nfs`, `showmount`)
+- Network connectivity and firewall settings
+- Automount configuration
+
+Additional options:
+```bash
+# Test connectivity to a specific SMB server
+./macos-client-setup.sh --test-smb 192.168.1.10
+
+# Test connectivity to a specific NFS server
+./macos-client-setup.sh --test-nfs 192.168.1.10
+
+# Setup automount for persistent NFS mounts
+sudo ./macos-client-setup.sh --setup-automount
+
+# Install optional tools (nmap, smbclient) via Homebrew
+./macos-client-setup.sh --install-optional
+```
+
 ## Installation
 
-### Download Pre-built Binary (Recommended)
+### One-Liner Install (Recommended)
+
+Install sambo with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/winterweken/sambo/main/scripts/install.sh | bash
+```
+
+This automatically:
+- Detects your OS (Linux/macOS) and architecture (amd64/arm64/arm)
+- Downloads the latest release
+- Installs the binary to `/usr/local/bin`
+- Installs helper scripts to `/usr/local/share/sambo`
+
+### Download Pre-built Binary
 
 Download the latest release for your architecture:
 
