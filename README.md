@@ -16,15 +16,18 @@ A command-line interface tool for managing Samba (SMB/CIFS) and NFS shares on Li
 ## Requirements
 
 ### System Requirements
+
 - Linux-based operating system
 - Root access (sudo)
 
 ### Samba Requirements
+
 - `samba` package installed
 - `smbpasswd` command available
 - `testparm` command available
 
 ### NFS Requirements
+
 - `nfs-kernel-server` or `nfs-server` package installed
 - `exportfs` command available
 
@@ -41,12 +44,14 @@ curl -fsSL https://raw.githubusercontent.com/winterweken/sambo/main/scripts/maco
 ```
 
 The script checks:
+
 - SMB/CIFS tools (`mount_smbfs`, `smbutil`)
 - NFS tools (`mount_nfs`, `showmount`)
 - Network connectivity and firewall settings
 - Automount configuration
 
 Additional options:
+
 ```bash
 # Test connectivity to a specific SMB server
 ./macos-client-setup.sh --test-smb 192.168.1.10
@@ -72,6 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/winterweken/sambo/main/scripts/inst
 ```
 
 This automatically:
+
 - Detects your OS (Linux/macOS) and architecture (amd64/arm64/arm)
 - Downloads the latest release
 - Installs the binary to `/usr/local/bin`
@@ -142,6 +148,7 @@ sudo sambo tui
 ```
 
 The TUI provides:
+
 - **Arrow key navigation** through menus
 - **Interactive lists** of shares, exports, and users
 - **Visual feedback** with color-coded output
@@ -149,6 +156,7 @@ The TUI provides:
 - **Real-time viewing** of configured shares
 
 **TUI Navigation:**
+
 - `↑/↓` or `j/k` - Move up/down
 - `Enter` - Select menu item
 - `ESC` - Go back one level
@@ -223,13 +231,13 @@ Sambo includes built-in support for Apple Time Machine backups. When enabled, th
 # Using the TUI (recommended)
 sudo sambo tui
 # Select "Manage Samba Shares" → "Create Share"
-# Check the "Time Machine" checkbox
+# Cycle "Share Type" to "Time Machine"
 
 # Using CLI
 sudo sambo samba create \
   -name timemachine \
   -path /mnt/backup/timemachine \
-  -timemachine \
+  -type timemachine \
   -comment "Time Machine Backup"
 ```
 
@@ -238,11 +246,13 @@ sudo sambo samba create \
 Sambo automatically configures both global and share-level settings:
 
 *Global Samba settings (added automatically):*
+
 - `min protocol = SMB2` - Required for macOS compatibility
 - `ea support = yes` - Extended attributes support
 - `vfs objects = catia fruit streams_xattr` - macOS file system modules
 
 *Share-level settings:*
+
 - `fruit:metadata = stream` - Metadata handling
 - `fruit:model = MacSamba` - Identifies as Mac-compatible server
 - `fruit:aapl = yes` - Apple file system support
@@ -251,11 +261,51 @@ Sambo automatically configures both global and share-level settings:
 - Additional fruit module optimizations for macOS compatibility
 
 **Important Notes:**
+
 - The share path must exist and be writable
 - Users must be added with valid Samba passwords (`sambo user add`)
 - macOS will discover the share automatically in Time Machine preferences
 - Recommended to use a dedicated share for Time Machine backups
 - Requires Samba 4.8 or newer for full Time Machine support
+
+### Ubiquiti Protect Support
+
+Sambo includes optimized presets for using your server as a network storage destination for **Ubiquiti Protect** (UniFi NVR).
+
+```bash
+# Using the TUI (recommended)
+sudo sambo tui
+# Select "Manage Samba Shares" → "Create Share"
+# Cycle "Share Type" to "Ubiquiti Protect"
+
+# Using CLI
+sudo sambo samba create \
+  -name unifi-protect \
+  -path /mnt/video \
+  -type unifi-protect
+```
+
+**Protect Configuration:**
+
+- `create mask = 0660` / `directory mask = 0770`
+- `inherit permissions = yes`
+- `nt acl support = yes`
+- `vfs objects = streams_xattr`
+- Automatically sets `0770` directory permissions for the share path
+
+### Media Server Optimization
+
+For streaming media (Plex, Jellyfin), use the `media` type to enable read-ahead and performance optimizations:
+
+```bash
+sudo sambo samba create -name movies -path /mnt/media -type media
+```
+
+**Media Settings:**
+
+- `use sendfile = yes`
+- `strict locking = no`
+- `aio read/write size = 16384`
 
 ## NFS Export Management
 
@@ -316,15 +366,18 @@ sudo sambo nfs remove -path /mnt/backup
 The TUI provides easy checkbox options for common NFS configurations:
 
 **✓ Read Only** - Mount as read-only
+
 - Perfect for: Media servers (Plex, Jellyfin), public file shares
 - Options: `ro` instead of `rw`
 
 **✓ No Root Squash** - Allow root access
+
 - Perfect for: Backup destinations, Time Machine, system administration
 - Options: `no_root_squash` instead of `root_squash`
 - Warning: Only enable for trusted clients
 
 **✓ Async Mode** - Faster performance
+
 - Perfect for: Non-critical data, temporary files, media streaming
 - Options: `async` instead of `sync`
 - Warning: Data may be lost in case of server crash
@@ -407,6 +460,7 @@ sudo sambo tui
 ```
 
 **Mount Features:**
+
 - **List Mounts**: View all currently mounted network shares (CIFS and NFS)
 - **Mount CIFS/SMB**: Mount Windows/Samba shares with authentication
 - **Mount NFS**: Mount NFS shares from Linux/Unix servers
@@ -414,6 +468,7 @@ sudo sambo tui
 - **Persistent Option**: Automatically mount shares at boot via /etc/fstab
 
 **Important Notes:**
+
 - Mount points will be created automatically if they don't exist
 - CIFS mounts support username/password authentication
 - Persistent mounts are added to `/etc/fstab` for automatic mounting
@@ -534,6 +589,7 @@ Sambo modifies the following system configuration files:
 - **Mounts**: `/etc/fstab` (for persistent mounts)
 
 Backups are created before modifications:
+
 - `/etc/samba/smb.conf.backup`
 - `/etc/exports.backup`
 - `/etc/fstab.backup`
