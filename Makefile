@@ -8,7 +8,7 @@ INSTALL_PATH=/usr/local/bin
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all build build-all release clean install uninstall test test-cover test-race fmt lint help
+.PHONY: all build build-all release package-macos clean install uninstall test test-cover test-race fmt lint help
 
 all: build
 
@@ -29,6 +29,12 @@ build-all:
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
 	@echo "All builds complete"
+
+# Create macOS installer packages
+package-macos: build-all
+	@echo "Creating macOS installer packages..."
+	@./scripts/build-pkg.sh $(VERSION)
+
 
 # Create release packages with binaries and scripts
 release: build-all
@@ -124,6 +130,7 @@ help:
 	@echo "  make build       - Build the binary (default)"
 	@echo "  make build-all   - Build for multiple architectures"
 	@echo "  make release     - Create release packages with scripts"
+	@echo "  make package-macos - Create macOS installer packages (.pkg)"
 	@echo "  make install     - Build and install to $(INSTALL_PATH)"
 	@echo "  make uninstall   - Remove from system"
 	@echo "  make clean       - Remove build artifacts"
