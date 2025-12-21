@@ -74,7 +74,8 @@ func sambaCreate(args []string) error {
 	readOnly := fs.Bool("readonly", false, "Make share read-only")
 	browseable := fs.Bool("browseable", true, "Make share browseable")
 	validUsers := fs.String("users", "", "Comma-separated list of valid users")
-	timeMachine := fs.Bool("timemachine", false, "Enable Apple Time Machine support")
+	timeMachine := fs.Bool("timemachine", false, "Enable Apple Time Machine support (deprecated, use -type timemachine)")
+	shareType := fs.String("type", "general", "Share preset type (general, timemachine, unifi-protect, media)")
 	tmMaxSize := fs.String("tmsize", "0", "Time Machine max backup size (e.g., 500G, 1T, 0=unlimited)")
 
 	fs.Parse(args)
@@ -90,6 +91,7 @@ func sambaCreate(args []string) error {
 		Comment:            *comment,
 		ReadOnly:           *readOnly,
 		Browseable:         *browseable,
+		ShareType:          *shareType,
 		TimeMachine:        *timeMachine,
 		TimeMachineMaxSize: *tmMaxSize,
 	}
@@ -219,14 +221,17 @@ CREATE/MODIFY OPTIONS:
     -readonly                   Make share read-only (default: false)
     -browseable                 Make share browseable (default: true)
     -users <user1,user2>        Comma-separated list of valid users
-    -timemachine                Enable Apple Time Machine support (default: false)
+    -type <type>                Share preset type (general, timemachine, unifi-protect, media)
+    -timemachine                Enable Apple Time Machine (deprecated)
     -tmsize <size>              Time Machine max size (e.g., 500G, 1T, 0=unlimited)
 
 EXAMPLES:
     sambo samba list
     sambo samba create -name docs -path /mnt/documents -comment "Document Share"
-    sambo samba create -name backup -path /mnt/backup -timemachine -comment "Time Machine Backup"
-    sambo samba create -name backup -path /mnt/backup -timemachine -tmsize 500G -comment "Limited TM"
+    sambo samba create -name protect -path /mnt/video -type unifi-protect
+    sambo samba create -name movies -path /mnt/media -type media
+    sambo samba create -name backup -path /mnt/backup -type timemachine -comment "Time Machine Backup"
+    sambo samba create -name backup -path /mnt/backup -type timemachine -tmsize 500G -comment "Limited TM"
     sambo samba create -name private -path /mnt/private -users alice,bob -readonly
     sambo samba modify -name docs -users alice,bob,charlie
     sambo samba remove -name docs

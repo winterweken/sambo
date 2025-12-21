@@ -160,6 +160,27 @@ func (m *Manager) installSamba() error {
 	}
 }
 
+// ShareType constants for different share presets
+const (
+	ShareTypeGeneral      = "general"
+	ShareTypeTimeMachine  = "timemachine"
+	ShareTypeUnifiProtect = "unifi-protect"
+	ShareTypeMedia        = "media"
+)
+
+// ShareTypeNames provides human-readable names for share types
+var ShareTypeNames = map[string]string{
+	ShareTypeGeneral:      "General Purpose",
+	ShareTypeTimeMachine:  "Time Machine",
+	ShareTypeUnifiProtect: "Ubiquiti Protect",
+	ShareTypeMedia:        "Media Server",
+}
+
+// ShareTypeList returns ordered list of share types for UI
+func ShareTypeList() []string {
+	return []string{ShareTypeGeneral, ShareTypeTimeMachine, ShareTypeUnifiProtect, ShareTypeMedia}
+}
+
 // Share represents a Samba share configuration
 type Share struct {
 	Name               string
@@ -168,7 +189,8 @@ type Share struct {
 	ReadOnly           bool
 	Browseable         bool
 	ValidUsers         []string
-	TimeMachine        bool
+	ShareType          string // "general", "timemachine", "unifi-protect", "media"
+	TimeMachine        bool   // Deprecated: use ShareType == ShareTypeTimeMachine
 	TimeMachineMaxSize string // e.g., "500G", "1T", "0" for unlimited
 }
 
@@ -303,14 +325,17 @@ func (m *Manager) Create(share Share) error {
 		return fmt.Errorf("path '%s' does not exist", share.Path)
 	}
 
+	// Determine effective share type (backward compat: TimeMachine bool overrides)
+	effectiveType := share.GetEffectiveShareType()
+
 	// If Time Machine is enabled, ensure global config is set up
-	if share.TimeMachine {
+	if effectiveType == ShareTypeTimeMachine {
 		if err := m.EnsureTimeMachineGlobalConfig(); err != nil {
 			return fmt.Errorf("failed to configure Time Machine global settings: %w", err)
 		}
 	}
 
-	// Apply permissions (especially for Time Machine)
+	// Apply permissions based on share type
 	if err := m.FixPermissions(share); err != nil {
 		// Log warning but don't fail creation? User might fix it later.
 		// Or fail? "Failed to set permissions".
@@ -324,7 +349,6 @@ func (m *Manager) Create(share Share) error {
 		return err
 	}
 
-	// Append share configuration
 	// Append share configuration
 	confPath := m.getSambaConfPath()
 
@@ -360,8 +384,53 @@ func (m *Manager) Create(share Share) error {
 		config.WriteString(fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " ")))
 	}
 
-	// Add Time Machine support if enabled
-	if share.TimeMachine {
+	// Add share type-specific configuration
+	m.writeShareTypeConfig(&config, share, effectiveType)
+
+	// Write back
+	if err := m.fs.WriteFile(confPath, []byte(config.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	// Test configuration
+	if err := m.testConfig(); err != nil {
+		m.restoreConfig()
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Reload Samba
+	if err := m.reloadSamba(); err != nil {
+		return err
+	}
+
+	// Update Avahi service for Time Machine discovery
+	if effectiveType == ShareTypeTimeMachine {
+		existingTMShares := m.getTimeMachineShareNames()
+		if err := m.avahi.AddTimeMachineShare(share.Name, existingTMShares); err != nil {
+			// Log warning but don't fail - Avahi is optional
+			fmt.Printf("Warning: Failed to update Avahi service for Time Machine discovery: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// GetEffectiveShareType returns the share type, with backward compatibility for TimeMachine bool
+func (s *Share) GetEffectiveShareType() string {
+	// Backward compat: TimeMachine bool takes precedence if set
+	if s.TimeMachine {
+		return ShareTypeTimeMachine
+	}
+	if s.ShareType == "" {
+		return ShareTypeGeneral
+	}
+	return s.ShareType
+}
+
+// writeShareTypeConfig writes share type-specific SMB configuration
+func (m *Manager) writeShareTypeConfig(config *strings.Builder, share Share, shareType string) {
+	switch shareType {
+	case ShareTypeTimeMachine:
 		config.WriteString("   vfs objects = catia fruit streams_xattr\n")
 		config.WriteString("   fruit:metadata = stream\n")
 		config.WriteString("   fruit:model = MacSamba\n")
@@ -386,34 +455,34 @@ func (m *Manager) Create(share Share) error {
 		config.WriteString("   kernel oplocks = no\n")
 		config.WriteString("   kernel share modes = no\n")
 		config.WriteString("   posix locking = no\n")
-	}
 
-	// Write back
-	if err := m.fs.WriteFile(confPath, []byte(config.String()), 0644); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
-	}
+	case ShareTypeUnifiProtect:
+		// Ubiquiti Protect NVR storage requirements
+		config.WriteString("   # Ubiquiti Protect optimized settings\n")
+		config.WriteString("   create mask = 0660\n")
+		config.WriteString("   directory mask = 0770\n")
+		config.WriteString("   force create mode = 0660\n")
+		config.WriteString("   force directory mode = 0770\n")
+		config.WriteString("   inherit permissions = yes\n")
+		config.WriteString("   nt acl support = yes\n")
+		config.WriteString("   store dos attributes = yes\n")
+		config.WriteString("   map acl inherit = yes\n")
+		// Extended attributes for proper file handling
+		config.WriteString("   ea support = yes\n")
+		config.WriteString("   vfs objects = streams_xattr\n")
 
-	// Test configuration
-	if err := m.testConfig(); err != nil {
-		m.restoreConfig()
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
+	case ShareTypeMedia:
+		// Media server optimized settings (read-heavy, streaming)
+		config.WriteString("   # Media server optimized settings\n")
+		config.WriteString("   strict locking = no\n")
+		config.WriteString("   min receivefile size = 16384\n")
+		config.WriteString("   use sendfile = yes\n")
+		config.WriteString("   aio read size = 16384\n")
+		config.WriteString("   aio write size = 16384\n")
 
-	// Reload Samba
-	if err := m.reloadSamba(); err != nil {
-		return err
+	case ShareTypeGeneral:
+		// General purpose - no additional settings needed
 	}
-
-	// Update Avahi service for Time Machine discovery
-	if share.TimeMachine {
-		existingTMShares := m.getTimeMachineShareNames()
-		if err := m.avahi.AddTimeMachineShare(share.Name, existingTMShares); err != nil {
-			// Log warning but don't fail - Avahi is optional
-			fmt.Printf("Warning: Failed to update Avahi service for Time Machine discovery: %v\n", err)
-		}
-	}
-
-	return nil
 }
 
 // getTimeMachineShareNames returns names of all Time Machine enabled shares
@@ -689,35 +758,63 @@ func (m *Manager) Modify(name string, updates map[string]interface{}) error {
 
 // FixPermissions enforces correct ownership and permissions for the share directory.
 func (m *Manager) FixPermissions(share Share) error {
-	// Only apply logic for Time Machine shares or explicit request
-	if !share.TimeMachine {
-		return nil
-	}
+	effectiveType := share.GetEffectiveShareType()
 
-	if len(share.ValidUsers) == 0 {
-		return fmt.Errorf("Time Machine share has no valid users to assign ownership")
-	}
+	// Only apply special permissions for certain share types
+	switch effectiveType {
+	case ShareTypeTimeMachine:
+		// Time Machine requires strict single-user permissions
+		if len(share.ValidUsers) == 0 {
+			return fmt.Errorf("Time Machine share has no valid users to assign ownership")
+		}
 
-	// Verify path exists
-	if _, err := m.fs.Stat(share.Path); os.IsNotExist(err) {
-		return fmt.Errorf("path '%s' does not exist", share.Path)
-	}
+		// Verify path exists
+		if _, err := m.fs.Stat(share.Path); os.IsNotExist(err) {
+			return fmt.Errorf("path '%s' does not exist", share.Path)
+		}
 
-	// Get UID of the primary user
-	owner := share.ValidUsers[0]
-	uid, err := user.GetSystemUID(owner)
-	if err != nil {
-		return fmt.Errorf("failed to resolve UID for user '%s': %w", owner, err)
-	}
+		// Get UID of the primary user
+		owner := share.ValidUsers[0]
+		uid, err := user.GetSystemUID(owner)
+		if err != nil {
+			return fmt.Errorf("failed to resolve UID for user '%s': %w", owner, err)
+		}
 
-	// Chown to user (preserve group)
-	if err := m.fs.Chown(share.Path, uid, -1); err != nil {
-		return fmt.Errorf("failed to chown directory: %w", err)
-	}
+		// Chown to user (preserve group)
+		if err := m.fs.Chown(share.Path, uid, -1); err != nil {
+			return fmt.Errorf("failed to chown directory: %w", err)
+		}
 
-	// Chmod to 0700 (User only)
-	if err := m.fs.Chmod(share.Path, 0700); err != nil {
-		return fmt.Errorf("failed to chmod directory: %w", err)
+		// Chmod to 0700 (User only)
+		if err := m.fs.Chmod(share.Path, 0700); err != nil {
+			return fmt.Errorf("failed to chmod directory: %w", err)
+		}
+
+	case ShareTypeUnifiProtect:
+		// Ubiquiti Protect needs group-writable permissions
+		if _, err := m.fs.Stat(share.Path); os.IsNotExist(err) {
+			return fmt.Errorf("path '%s' does not exist", share.Path)
+		}
+
+		// Set permissions to 0770 (user and group read/write/execute)
+		if err := m.fs.Chmod(share.Path, 0770); err != nil {
+			return fmt.Errorf("failed to chmod directory: %w", err)
+		}
+
+		// If valid users specified, chown to first user
+		if len(share.ValidUsers) > 0 {
+			owner := share.ValidUsers[0]
+			uid, err := user.GetSystemUID(owner)
+			if err != nil {
+				return fmt.Errorf("failed to resolve UID for user '%s': %w", owner, err)
+			}
+			if err := m.fs.Chown(share.Path, uid, -1); err != nil {
+				return fmt.Errorf("failed to chown directory: %w", err)
+			}
+		}
+
+	case ShareTypeMedia, ShareTypeGeneral:
+		// No special permissions needed
 	}
 
 	return nil

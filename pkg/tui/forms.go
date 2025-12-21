@@ -32,26 +32,38 @@ type formField struct {
 	input       textinput.Model
 	checkbox    bool
 	checkValue  bool
+	dropdown    bool     // If true, this is a dropdown selection
+	dropOptions []string // Options for dropdown
+	dropLabels  []string // Human-readable labels for dropdown options
+	dropIndex   int      // Currently selected index
 	description string
 	displayOnly bool // For read-only display fields
 }
 
 type formModel struct {
-	fields       []formField
-	focusIndex   int
-	submitIndex  int
-	formType     string // "samba-create", "nfs-create", "user-add", etc.
-	timeMachine  bool
-	readOnly     bool
-	browseable   bool
-	returnScreen screen
-	originalName string // For modify operations
-	message      string // Error/success message to display in form
-	messageType  string // "error" or "success"
+	fields         []formField
+	focusIndex     int
+	submitIndex    int
+	formType       string // "samba-create", "nfs-create", "user-add", etc.
+	timeMachine    bool   // Deprecated: use shareTypeIndex
+	shareTypeIndex int    // Index of selected share type
+	readOnly       bool
+	browseable     bool
+	returnScreen   screen
+	originalName   string // For modify operations
+	message        string // Error/success message to display in form
+	messageType    string // "error" or "success"
 }
 
 func newSambaCreateForm() formModel {
 	inputs := make([]formField, 5)
+
+	// Build share type options and labels
+	shareTypes := samba.ShareTypeList()
+	shareLabels := make([]string, len(shareTypes))
+	for i, st := range shareTypes {
+		shareLabels[i] = samba.ShareTypeNames[st]
+	}
 
 	inputs[0] = formField{
 		label:       "Share Name",
@@ -74,10 +86,12 @@ func newSambaCreateForm() formModel {
 		description: "Users who can access (leave empty for all)",
 	}
 	inputs[4] = formField{
-		label:       "Time Machine",
-		checkbox:    true,
-		checkValue:  false,
-		description: "Enable Apple Time Machine support",
+		label:       "Share Type",
+		dropdown:    true,
+		dropOptions: shareTypes,
+		dropLabels:  shareLabels,
+		dropIndex:   0, // Default to "General Purpose"
+		description: "Select share preset (←/→ or Space to change)",
 	}
 
 	inputs[0].input.Focus()
@@ -508,14 +522,31 @@ func (fm formModel) Update(msg tea.Msg, parent *model) (formModel, tea.Cmd) {
 				return fm, nil
 			}
 
-		case " ":
-			// Toggle checkbox with space
-			if fm.focusIndex < len(fm.fields) && fm.fields[fm.focusIndex].checkbox {
-				fm.fields[fm.focusIndex].checkValue = !fm.fields[fm.focusIndex].checkValue
-				if fm.formType == "samba-create" && fm.focusIndex == 4 {
-					fm.timeMachine = fm.fields[fm.focusIndex].checkValue
+		case " ", "left", "right":
+			// Toggle checkbox or cycle dropdown with space/left/right
+			if fm.focusIndex < len(fm.fields) {
+				field := &fm.fields[fm.focusIndex]
+				if field.checkbox {
+					field.checkValue = !field.checkValue
+					if fm.formType == "samba-create" && fm.focusIndex == 4 {
+						fm.timeMachine = field.checkValue
+					}
+					return fm, nil
+				} else if field.dropdown {
+					// Cycle through dropdown options
+					if msg.String() == "left" {
+						field.dropIndex--
+						if field.dropIndex < 0 {
+							field.dropIndex = len(field.dropOptions) - 1
+						}
+					} else {
+						field.dropIndex++
+						if field.dropIndex >= len(field.dropOptions) {
+							field.dropIndex = 0
+						}
+					}
+					return fm, nil
 				}
-				return fm, nil
 			}
 		}
 	}
@@ -567,7 +598,12 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	path := fm.fields[1].input.Value()
 	comment := fm.fields[2].input.Value()
 	users := fm.fields[3].input.Value()
-	timeMachine := fm.fields[4].checkValue // Read directly from checkbox field
+
+	// Get share type from dropdown
+	shareType := samba.ShareTypeGeneral
+	if fm.fields[4].dropdown && fm.fields[4].dropIndex < len(fm.fields[4].dropOptions) {
+		shareType = fm.fields[4].dropOptions[fm.fields[4].dropIndex]
+	}
 
 	if name == "" || path == "" {
 		fm.message = "Name and path are required"
@@ -583,12 +619,12 @@ func (fm formModel) submitSambaCreate(parent *model) (formModel, tea.Cmd) {
 	}
 
 	share := samba.Share{
-		Name:        name,
-		Path:        path,
-		Comment:     comment,
-		ReadOnly:    false,
-		Browseable:  true,
-		TimeMachine: timeMachine,
+		Name:       name,
+		Path:       path,
+		Comment:    comment,
+		ReadOnly:   false,
+		Browseable: true,
+		ShareType:  shareType,
 	}
 
 	if users != "" {
@@ -1136,6 +1172,31 @@ func (fm formModel) View() string {
 			if field.description != "" {
 				b.WriteString(fmt.Sprintf("   %s\n", blurredStyle.Render(field.description)))
 			}
+		} else if field.dropdown {
+			// Dropdown field
+			cursor := " "
+			if i == fm.focusIndex {
+				cursor = "▶"
+			}
+
+			// Get current selection label
+			currentLabel := "Unknown"
+			if field.dropIndex < len(field.dropLabels) {
+				currentLabel = field.dropLabels[field.dropIndex]
+			}
+
+			// Show dropdown with arrows for cycling
+			dropdownDisplay := fmt.Sprintf("◀ %s ▶", currentLabel)
+			if i == fm.focusIndex {
+				dropdownDisplay = focusedStyle.Render(dropdownDisplay)
+			} else {
+				dropdownDisplay = blurredStyle.Render(dropdownDisplay)
+			}
+
+			b.WriteString(fmt.Sprintf("%s %s: %s\n", cursor, field.label, dropdownDisplay))
+			if field.description != "" {
+				b.WriteString(fmt.Sprintf("   %s\n", blurredStyle.Render(field.description)))
+			}
 		} else {
 			// Text input field
 			cursor := " "
@@ -1190,19 +1251,19 @@ func newMountUnmountFormWithPath(mountPoint string) formModel {
 }
 
 func newMountEditForm(mountPoint string) (formModel, error) {
-    // Basic placeholder implementation
-    inputs := make([]formField, 1)
-    inputs[0] = formField{
-        label: "Mount Point",
-        input: makeInput(mountPoint, "Mount point (read-only)"),
-        displayOnly: true,
-    }
-    
-    return formModel{
-        fields: inputs,
-        focusIndex: 0,
-        submitIndex: 1,
-        formType: "mount-edit", 
-        returnScreen: screenMountMenu,
-    }, nil
+	// Basic placeholder implementation
+	inputs := make([]formField, 1)
+	inputs[0] = formField{
+		label:       "Mount Point",
+		input:       makeInput(mountPoint, "Mount point (read-only)"),
+		displayOnly: true,
+	}
+
+	return formModel{
+		fields:       inputs,
+		focusIndex:   0,
+		submitIndex:  1,
+		formType:     "mount-edit",
+		returnScreen: screenMountMenu,
+	}, nil
 }
