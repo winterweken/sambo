@@ -60,6 +60,11 @@ jobs:
             ### macOS Installation
             Download the `.pkg` installer from the Assets below.
 
+            **Assets:**
+            - `sambo-macos-amd64.pkg` (Intel)
+            - `sambo-macos-arm64.pkg` (Apple Silicon)
+            - `macos-client-setup.sh` (Standalone setup script)
+
           draft: false
           prerelease: false
         env:
@@ -68,6 +73,7 @@ jobs:
   build-macos:
     name: Build macOS
     runs-on: macos-latest
+    needs: build-linux
 
     steps:
       - name: Checkout code
@@ -90,5 +96,6 @@ jobs:
         with:
           files: |
             build/release/*.pkg
+            scripts/macos-client-setup.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
