@@ -15,6 +15,7 @@ func TestPackageManager_Constants(t *testing.T) {
 		{DNF, "dnf"},
 		{PACMAN, "pacman"},
 		{ZYPPER, "zypper"},
+		{APK, "apk"},
 		{UNKNOWN, "unknown"},
 	}
 
@@ -34,10 +35,11 @@ func TestGetSambaPackages(t *testing.T) {
 		expected []string
 	}{
 		{APT, []string{"samba"}},
-		{YUM, []string{"samba"}},
-		{DNF, []string{"samba"}},
+		{YUM, []string{"samba", "samba-common-tools"}},
+		{DNF, []string{"samba", "samba-common-tools"}},
 		{PACMAN, []string{"samba"}},
 		{ZYPPER, []string{"samba"}},
+		{APK, []string{"samba"}},
 		{UNKNOWN, []string{"samba"}},
 	}
 
@@ -68,6 +70,7 @@ func TestGetNFSPackages(t *testing.T) {
 		{DNF, []string{"nfs-utils"}},
 		{PACMAN, []string{"nfs-utils"}},
 		{ZYPPER, []string{"nfs-kernel-server"}},
+		{APK, []string{"nfs-utils"}},
 		{UNKNOWN, []string{"nfs-utils"}},
 	}
 
@@ -98,6 +101,7 @@ func TestGetCIFSPackages(t *testing.T) {
 		{DNF, []string{"cifs-utils"}},
 		{PACMAN, []string{"cifs-utils"}},
 		{ZYPPER, []string{"cifs-utils"}},
+		{APK, []string{"cifs-utils"}},
 		{UNKNOWN, []string{"cifs-utils"}},
 	}
 
@@ -128,6 +132,7 @@ func TestGetNFSClientPackages(t *testing.T) {
 		{DNF, []string{"nfs-utils"}},
 		{PACMAN, []string{"nfs-utils"}},
 		{ZYPPER, []string{"nfs-client"}},
+		{APK, []string{"nfs-utils"}},
 		{UNKNOWN, []string{"nfs-utils"}},
 	}
 
@@ -159,6 +164,7 @@ func TestPackageManagerCommands(t *testing.T) {
 		{YUM, "yum", []string{"install", "-y"}},
 		{PACMAN, "pacman", []string{"-S", "--noconfirm"}},
 		{ZYPPER, "zypper", []string{"install", "-y"}},
+		{APK, "apk", []string{"add", "--no-cache"}},
 	}
 
 	for _, tt := range tests {
@@ -176,6 +182,8 @@ func TestPackageManagerCommands(t *testing.T) {
 				expectedCmd = "pacman"
 			case ZYPPER:
 				expectedCmd = "zypper"
+			case APK:
+				expectedCmd = "apk"
 			}
 
 			if tt.lookupCmd != expectedCmd {
@@ -302,6 +310,7 @@ func TestInstallCommandGeneration(t *testing.T) {
 		{YUM, []string{"nfs-utils"}, "yum install -y nfs-utils"},
 		{PACMAN, []string{"samba"}, "pacman -S --noconfirm samba"},
 		{ZYPPER, []string{"cifs-utils"}, "zypper install -y cifs-utils"},
+		{APK, []string{"nfs-utils"}, "apk add --no-cache nfs-utils"},
 		{APT, []string{"pkg1", "pkg2"}, "apt-get install -y pkg1 pkg2"},
 	}
 
@@ -319,6 +328,8 @@ func TestInstallCommandGeneration(t *testing.T) {
 				cmd = "pacman -S --noconfirm " + strings.Join(tt.packages, " ")
 			case ZYPPER:
 				cmd = "zypper install -y " + strings.Join(tt.packages, " ")
+			case APK:
+				cmd = "apk add --no-cache " + strings.Join(tt.packages, " ")
 			}
 
 			if cmd != tt.expected {
@@ -364,6 +375,7 @@ func TestPackageManagerDetectionOrder(t *testing.T) {
 		{YUM, "yum"},
 		{PACMAN, "pacman"},
 		{ZYPPER, "zypper"},
+		{APK, "apk"},
 	}
 
 	for i, expected := range expectedOrder {
@@ -410,7 +422,7 @@ func TestNFSServiceDetection(t *testing.T) {
 
 // TestAllPackageManagersHavePackages tests that all package managers return packages
 func TestAllPackageManagersHavePackages(t *testing.T) {
-	packageManagers := []PackageManager{APT, YUM, DNF, PACMAN, ZYPPER, UNKNOWN}
+	packageManagers := []PackageManager{APT, YUM, DNF, PACMAN, ZYPPER, APK, UNKNOWN}
 	packageFuncs := []struct {
 		name string
 		fn   func(PackageManager) []string
@@ -449,6 +461,7 @@ func TestPackageManagerString(t *testing.T) {
 		{DNF, "dnf"},
 		{PACMAN, "pacman"},
 		{ZYPPER, "zypper"},
+		{APK, "apk"},
 		{UNKNOWN, "unknown"},
 	}
 

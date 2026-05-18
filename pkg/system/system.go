@@ -17,6 +17,7 @@ const (
 	DNF      PackageManager = "dnf"
 	PACMAN   PackageManager = "pacman"
 	ZYPPER   PackageManager = "zypper"
+	APK      PackageManager = "apk"
 	HOMEBREW PackageManager = "homebrew"
 	UNKNOWN  PackageManager = "unknown"
 )
@@ -41,6 +42,7 @@ func DetectPackageManager() PackageManager {
 		{YUM, "yum"},
 		{PACMAN, "pacman"},
 		{ZYPPER, "zypper"},
+		{APK, "apk"},
 	}
 
 	for _, mgr := range managers {
@@ -186,10 +188,12 @@ func GetSambaPackages(pm PackageManager) []string {
 	case APT:
 		return []string{"samba"}
 	case YUM, DNF:
-		return []string{"samba"}
+		return []string{"samba", "samba-common-tools"}
 	case PACMAN:
 		return []string{"samba"}
 	case ZYPPER:
+		return []string{"samba"}
+	case APK:
 		return []string{"samba"}
 	default:
 		return []string{"samba"}
@@ -210,6 +214,8 @@ func GetNFSPackages(pm PackageManager) []string {
 		return []string{"nfs-utils"}
 	case ZYPPER:
 		return []string{"nfs-kernel-server"}
+	case APK:
+		return []string{"nfs-utils"}
 	default:
 		return []string{"nfs-utils"}
 	}
@@ -228,6 +234,8 @@ func GetCIFSPackages(pm PackageManager) []string {
 	case PACMAN:
 		return []string{"cifs-utils"}
 	case ZYPPER:
+		return []string{"cifs-utils"}
+	case APK:
 		return []string{"cifs-utils"}
 	default:
 		return []string{"cifs-utils"}
@@ -248,6 +256,8 @@ func GetNFSClientPackages(pm PackageManager) []string {
 		return []string{"nfs-utils"}
 	case ZYPPER:
 		return []string{"nfs-client"}
+	case APK:
+		return []string{"nfs-utils"}
 	default:
 		return []string{"nfs-utils"}
 	}
@@ -268,6 +278,8 @@ func GetAvahiPackages(pm PackageManager) []string {
 		return []string{"avahi"}
 	case ZYPPER:
 		return []string{"avahi"}
+	case APK:
+		return []string{"avahi", "dbus"}
 	default:
 		return []string{"avahi"}
 	}
@@ -323,6 +335,10 @@ func InstallPackages(packages []string) error {
 	case ZYPPER:
 		args := append([]string{"install", "-y"}, packages...)
 		cmd = exec.Command("zypper", args...)
+
+	case APK:
+		args := append([]string{"add", "--no-cache"}, packages...)
+		cmd = exec.Command("apk", args...)
 
 	default:
 		return fmt.Errorf("unsupported package manager: %s", pm)
