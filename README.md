@@ -1,39 +1,40 @@
-# Sambo - Linux Share Management CLI
+# Sambo - Share Management CLI for Linux & macOS
 
-A command-line interface tool for managing Samba (SMB/CIFS) and NFS shares on Linux headless servers.
+A command-line tool for managing Samba (SMB/CIFS) and NFS shares on Linux and macOS, featuring both a traditional CLI and an interactive terminal UI (TUI).
 
 ## Features
 
-- **Samba Share Management**: Create, list, modify, and remove Samba shares
+- **Samba Share Management**: Create, list, modify, and remove Samba shares with share type presets
 - **NFS Export Management**: Create, list, modify, and remove NFS exports
 - **Network Mount Management**: Mount and manage remote CIFS/SMB and NFS shares
+- **NFS Server Discovery**: Scan your local network for available NFS servers
 - **User Management**: Add, remove, and manage Samba users with password control
-- **Simple CLI Interface**: Easy-to-use command structure with helpful output
-- **Interactive TUI**: Beautiful text-based interface for all operations
-- **Configuration Backup**: Automatic backup before making changes
-- **Validation**: Tests configuration before applying changes
+- **Interactive TUI**: Beautiful text-based interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+- **CLI Interface**: Scriptable command structure for automation and headless use
+- **Share Type Presets**: Built-in configurations for Time Machine, Ubiquiti Protect, and media servers
+- **Configuration Safety**: Automatic backups, validation via `testparm`, and atomic file operations
+- **Cross-Platform**: Native support for both Linux and macOS with platform-aware service management
 
 ## Requirements
 
-### System Requirements
+### Linux
 
-- Linux-based operating system
 - Root access (sudo)
+- **Samba**: `samba` package (`smbd`, `smbpasswd`, `testparm`)
+- **NFS**: `nfs-kernel-server` or `nfs-utils` (`exportfs`)
 
-### Samba Requirements
+### macOS
 
-- `samba` package installed
-- `smbpasswd` command available
-- `testparm` command available
+- Root access (sudo)
+- **Samba**: Install via Homebrew (`brew install samba`)
+- **NFS**: Built-in (`nfsd`)
+- NFS client tools are built-in (`mount_nfs`, `mount_smbfs`)
 
-### NFS Requirements
+> **Note**: Sambo auto-detects your platform and uses the correct paths, service managers, and mount commands for each OS.
 
-- `nfs-kernel-server` or `nfs-server` package installed
-- `exportfs` command available
+### macOS Client Setup
 
-### macOS Client Requirements
-
-For macOS clients connecting to sambo-managed shares, run the client setup script to verify all requirements:
+For macOS clients connecting to sambo-managed shares, run the client setup script:
 
 ```bash
 # If sambo is installed
@@ -43,97 +44,60 @@ For macOS clients connecting to sambo-managed shares, run the client setup scrip
 curl -fsSL https://raw.githubusercontent.com/winterweken/sambo/main/scripts/macos-client-setup.sh | bash
 ```
 
-The script checks:
-
-- SMB/CIFS tools (`mount_smbfs`, `smbutil`)
-- NFS tools (`mount_nfs`, `showmount`)
-- Network connectivity and firewall settings
-- Automount configuration
-
-Additional options:
+The script checks SMB/CIFS and NFS tools, network connectivity, firewall settings, and automount configuration. Additional options:
 
 ```bash
-# Test connectivity to a specific SMB server
-./macos-client-setup.sh --test-smb 192.168.1.10
-
-# Test connectivity to a specific NFS server
-./macos-client-setup.sh --test-nfs 192.168.1.10
-
-# Setup automount for persistent NFS mounts
-sudo ./macos-client-setup.sh --setup-automount
-
-# Install optional tools (nmap, smbclient) via Homebrew
-./macos-client-setup.sh --install-optional
+./macos-client-setup.sh --test-smb 192.168.1.10      # Test SMB connectivity
+./macos-client-setup.sh --test-nfs 192.168.1.10      # Test NFS connectivity
+sudo ./macos-client-setup.sh --setup-automount        # Setup persistent NFS mounts
+./macos-client-setup.sh --install-optional             # Install optional tools via Homebrew
 ```
 
 ## Installation
 
 ### One-Liner Install (Recommended)
 
-Install sambo with a single command:
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/winterweken/sambo/main/scripts/install.sh | bash
 ```
 
-This automatically:
-
-- Detects your OS (Linux/macOS) and architecture (amd64/arm64/arm)
-- Downloads the latest release
-- Installs the binary to `/usr/local/bin`
-- Installs helper scripts to `/usr/local/share/sambo`
+This automatically detects your OS and architecture, downloads the latest release, and installs to `/usr/local/bin`.
 
 ### Download Pre-built Binary
 
-Download the latest release for your architecture:
-
 ```bash
-# For AMD64 (most common Intel/AMD servers)
+# Linux AMD64
 wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-amd64
-sudo mv sambo-linux-amd64 /usr/local/bin/sambo
-sudo chmod +x /usr/local/bin/sambo
+sudo mv sambo-linux-amd64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
 
-# For ARM64 (Raspberry Pi 4, AWS Graviton, etc.)
+# Linux ARM64 (Raspberry Pi 4, AWS Graviton)
 wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-arm64
-sudo mv sambo-linux-arm64 /usr/local/bin/sambo
-sudo chmod +x /usr/local/bin/sambo
+sudo mv sambo-linux-arm64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
 
-# For ARM (Raspberry Pi 3 and older)
-wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-arm
-sudo mv sambo-linux-arm /usr/local/bin/sambo
-sudo chmod +x /usr/local/bin/sambo
+# macOS Apple Silicon
+wget https://github.com/winterweken/sambo/releases/latest/download/sambo-darwin-arm64
+sudo mv sambo-darwin-arm64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
 
-# Verify installation
+# macOS Intel
+wget https://github.com/winterweken/sambo/releases/latest/download/sambo-darwin-amd64
+sudo mv sambo-darwin-amd64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
+
+# Verify
 sudo sambo version
 ```
 
 ### Build from Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/winterweken/sambo.git
 cd sambo
-
-# Build the binary
 make build
-
-# Install to system path
 sudo make install
-
-# Or run directly
-sudo ./build/sambo
-```
-
-### Quick Install Script
-
-```bash
-# Build and install from source
-make build && sudo make install
 ```
 
 ## Usage
 
-All commands must be run with root privileges:
+All commands require root privileges:
 
 ```bash
 sudo sambo <command> [subcommand] [options]
@@ -141,52 +105,34 @@ sudo sambo <command> [subcommand] [options]
 
 ### Interactive TUI Mode (Recommended)
 
-Sambo includes a beautiful text-based user interface (TUI) similar to DockStarter, making it easy to manage shares interactively:
-
 ```bash
 sudo sambo tui
 ```
 
-The TUI provides:
+The TUI provides arrow-key navigation, interactive forms, color-coded feedback, and dependency checking — the easiest way to manage shares.
 
-- **Arrow key navigation** through menus
-- **Interactive lists** of shares, exports, and users
-- **Visual feedback** with color-coded output
-- **Easy navigation** - ESC to go back, Q to quit
-- **Real-time viewing** of configured shares
-
-**TUI Navigation:**
-
-- `↑/↓` or `j/k` - Move up/down
-- `Enter` - Select menu item
-- `ESC` - Go back one level
-- `Q` - Return to main menu or quit
-
-This is the easiest way to use Sambo, especially for users who prefer interactive menus over CLI commands.
+**Navigation:** `↑/↓` or `j/k` to move, `Enter` to select, `ESC` to go back, `Q` to quit.
 
 ### General Commands
 
 ```bash
-sambo help              # Show help
-sambo version           # Show version
-sambo tui               # Launch interactive menu (requires sudo)
+sambo help      # Show help
+sambo version   # Show version
+sambo tui       # Launch interactive TUI (requires sudo)
 ```
 
 ## Samba Share Management
 
-### List all Samba shares
+### List / Show / Create / Modify / Remove
 
 ```bash
 sudo sambo samba list
-```
+sudo sambo samba show -name myshare
 
-### Create a new share
-
-```bash
-# Basic share
+# Create a basic share
 sudo sambo samba create -name myshare -path /mnt/data
 
-# Share with options
+# Create with options
 sudo sambo samba create \
   -name documents \
   -path /mnt/documents \
@@ -194,195 +140,70 @@ sudo sambo samba create \
   -users alice,bob,charlie
 
 # Read-only share
-sudo sambo samba create \
-  -name readonly \
-  -path /mnt/public \
-  -readonly \
-  -comment "Public Files"
-```
+sudo sambo samba create -name readonly -path /mnt/public -readonly
 
-### Show share details
-
-```bash
-sudo sambo samba show -name myshare
-```
-
-### Modify an existing share
-
-```bash
-# Add users to share
+# Modify
 sudo sambo samba modify -name myshare -users alice,bob
-
-# Change comment
 sudo sambo samba modify -name myshare -comment "New description"
-```
 
-### Remove a share
-
-```bash
+# Remove
 sudo sambo samba remove -name myshare
 ```
 
-### Apple Time Machine Support
+### Share Type Presets
 
-Sambo includes built-in support for Apple Time Machine backups. When enabled, the share is automatically configured with the necessary VFS modules and settings:
+Sambo includes optimized presets for common use cases:
 
-```bash
-# Using the TUI (recommended)
-sudo sambo tui
-# Select "Manage Samba Shares" → "Create Share"
-# Cycle "Share Type" to "Time Machine"
-
-# Using CLI
-sudo sambo samba create \
-  -name timemachine \
-  -path /mnt/backup/timemachine \
-  -type timemachine \
-  -comment "Time Machine Backup"
-```
-
-**Time Machine Configuration:**
-
-Sambo automatically configures both global and share-level settings:
-
-*Global Samba settings (added automatically):*
-
-- `min protocol = SMB2` - Required for macOS compatibility
-- `ea support = yes` - Extended attributes support
-- `vfs objects = catia fruit streams_xattr` - macOS file system modules
-
-*Share-level settings:*
-
-- `fruit:metadata = stream` - Metadata handling
-- `fruit:model = MacSamba` - Identifies as Mac-compatible server
-- `fruit:aapl = yes` - Apple file system support
-- `fruit:time machine = yes` - Time Machine discovery
-- `fruit:time machine max size = 500G` - Default quota (configurable in smb.conf)
-- Additional fruit module optimizations for macOS compatibility
-
-**Important Notes:**
-
-- The share path must exist and be writable
-- Users must be added with valid Samba passwords (`sambo user add`)
-- macOS will discover the share automatically in Time Machine preferences
-- Recommended to use a dedicated share for Time Machine backups
-- Requires Samba 4.8 or newer for full Time Machine support
-
-### Ubiquiti Protect Support
-
-Sambo includes optimized presets for using your server as a network storage destination for **Ubiquiti Protect** (UniFi NVR).
+#### Apple Time Machine
 
 ```bash
-# Using the TUI (recommended)
-sudo sambo tui
-# Select "Manage Samba Shares" → "Create Share"
-# Cycle "Share Type" to "Ubiquiti Protect"
-
-# Using CLI
-sudo sambo samba create \
-  -name unifi-protect \
-  -path /mnt/video \
-  -type unifi-protect
+sudo sambo samba create -name timemachine -path /mnt/backup/timemachine -type timemachine
 ```
 
-**Protect Configuration:**
+Automatically configures:
+- VFS modules: `catia fruit streams_xattr`
+- Apple metadata: `fruit:aapl`, `fruit:time machine = yes`
+- Global settings: `min protocol = SMB2`, `ea support = yes`
+- Reliability: durable handles, disabled kernel oplocks/share modes
+- Avahi/Bonjour mDNS advertisement for auto-discovery on macOS
 
-- `create mask = 0660` / `directory mask = 0770`
-- `inherit permissions = yes`
-- `nt acl support = yes`
-- `vfs objects = streams_xattr`
-- Automatically sets `0770` directory permissions for the share path
+> Requires Samba 4.8+. The share path must exist and users need valid Samba passwords.
 
-### Media Server Optimization
+#### Ubiquiti Protect
 
-For streaming media (Plex, Jellyfin), use the `media` type to enable read-ahead and performance optimizations:
+```bash
+sudo sambo samba create -name unifi-protect -path /mnt/video -type unifi-protect
+```
+
+Configures: `create mask = 0660`, `directory mask = 0770`, `inherit permissions`, `nt acl support`, `streams_xattr`. Automatically sets `0770` permissions with owner set to the first valid user.
+
+#### Media Server (Plex, Jellyfin)
 
 ```bash
 sudo sambo samba create -name movies -path /mnt/media -type media
 ```
 
-**Media Settings:**
-
-- `use sendfile = yes`
-- `strict locking = no`
-- `aio read/write size = 16384`
+Configures: `use sendfile = yes`, `strict locking = no`, `aio read/write size = 16384`.
 
 ## NFS Export Management
 
-### List all NFS exports
-
 ```bash
 sudo sambo nfs list
-```
-
-### Create a new export
-
-```bash
-# Basic export (all clients)
-sudo sambo nfs create -path /mnt/backup
-
-# Export to specific network
-sudo sambo nfs create \
-  -path /mnt/data \
-  -clients 192.168.1.0/24
-
-# Read-only export
-sudo sambo nfs create \
-  -path /mnt/public \
-  -clients "*" \
-  -readonly
-
-# Export with no root squash
-sudo sambo nfs create \
-  -path /mnt/secure \
-  -clients 192.168.1.100 \
-  -no-root-squash
-```
-
-### Show export details
-
-```bash
 sudo sambo nfs show -path /mnt/backup
-```
 
-### Modify an existing export
+# Create exports
+sudo sambo nfs create -path /mnt/data -clients 192.168.1.0/24
+sudo sambo nfs create -path /mnt/public -clients "*" -readonly
+sudo sambo nfs create -path /mnt/secure -clients 192.168.1.100 -no-root-squash
 
-```bash
-# Change client access
-sudo sambo nfs modify -path /mnt/backup -clients 192.168.1.50
+# Modify
+sudo sambo nfs modify -path /mnt/backup -clients 192.168.1.50 -readonly
 
-# Make read-only
-sudo sambo nfs modify -path /mnt/backup -readonly
-```
-
-### Remove an export
-
-```bash
+# Remove
 sudo sambo nfs remove -path /mnt/backup
 ```
 
-### NFS Configuration Presets (TUI)
-
-The TUI provides easy checkbox options for common NFS configurations:
-
-**✓ Read Only** - Mount as read-only
-
-- Perfect for: Media servers (Plex, Jellyfin), public file shares
-- Options: `ro` instead of `rw`
-
-**✓ No Root Squash** - Allow root access
-
-- Perfect for: Backup destinations, Time Machine, system administration
-- Options: `no_root_squash` instead of `root_squash`
-- Warning: Only enable for trusted clients
-
-**✓ Async Mode** - Faster performance
-
-- Perfect for: Non-critical data, temporary files, media streaming
-- Options: `async` instead of `sync`
-- Warning: Data may be lost in case of server crash
-
-**Common Use Cases:**
+### NFS Options Reference
 
 | Use Case | Read Only | No Root Squash | Async Mode |
 |----------|-----------|----------------|------------|
@@ -396,291 +217,109 @@ All exports include `no_subtree_check` by default for better performance.
 
 ## Network Mount Management
 
-Network mount management allows you to mount remote shares on your system (client-side functionality). This complements the server-side share management features.
-
-### List all network mounts
-
 ```bash
 sudo sambo mount list
-```
 
-### Mount a CIFS/SMB share
-
-```bash
-# Basic mount
+# Mount CIFS/SMB
 sudo sambo mount cifs \
   -source //server/share \
   -mountpoint /mnt/share \
-  -username alice \
-  -password secret123
+  -username alice -password secret123
 
-# Persistent mount (survives reboot)
-sudo sambo mount cifs \
-  -source //192.168.1.100/backup \
-  -mountpoint /mnt/backup \
-  -username admin \
-  -password pass123 \
-  -persistent
-```
-
-### Mount an NFS share
-
-```bash
-# Basic mount
+# Mount NFS
 sudo sambo mount nfs \
   -source server:/export/data \
   -mountpoint /mnt/data
 
-# Persistent mount (survives reboot)
-sudo sambo mount nfs \
-  -source 192.168.1.100:/backups \
-  -mountpoint /mnt/backups \
-  -persistent
-```
+# Persistent mount (survives reboot via /etc/fstab or macOS auto_nfs)
+sudo sambo mount cifs -source //server/share -mountpoint /mnt/share \
+  -username admin -password pass -persistent
 
-### Unmount a share
-
-```bash
-# Unmount temporarily
+# Unmount
 sudo sambo mount unmount -mountpoint /mnt/share
-
-# Unmount and remove from fstab
-sudo sambo mount unmount \
-  -mountpoint /mnt/share \
-  -remove-persistent
+sudo sambo mount unmount -mountpoint /mnt/share -remove-persistent
 ```
 
-### Mount Management in TUI
+### NFS Server Discovery
 
-The interactive TUI provides easy forms for mounting shares:
+Scan your local subnet for NFS servers:
 
 ```bash
-sudo sambo tui
-# Select "Manage Network Mounts"
+# Auto-detect subnet
+sudo sambo mount scan
+
+# Specify subnet
+sudo sambo mount scan -subnet 192.168.10.0/24
+
+# Query specific server
+sudo sambo mount scan -server 192.168.1.100
 ```
-
-**Mount Features:**
-
-- **List Mounts**: View all currently mounted network shares (CIFS and NFS)
-- **Mount CIFS/SMB**: Mount Windows/Samba shares with authentication
-- **Mount NFS**: Mount NFS shares from Linux/Unix servers
-- **Unmount Share**: Safely unmount network shares
-- **Persistent Option**: Automatically mount shares at boot via /etc/fstab
-
-**Important Notes:**
-
-- Mount points will be created automatically if they don't exist
-- CIFS mounts support username/password authentication
-- Persistent mounts are added to `/etc/fstab` for automatic mounting
-- The "Persistent" checkbox in TUI ensures mounts survive reboots
 
 ## User Management
 
-### List all Samba users
-
 ```bash
 sudo sambo user list
-```
+sudo sambo user show -username alice
 
-### Add a new user
-
-```bash
-# Create user (creates system user automatically)
+# Add user (creates system user automatically)
 sudo sambo user add -username alice -password secret123
 
-# Add user without creating system user
-sudo sambo user add \
-  -username bob \
-  -password pass456 \
-  -create-system=false
-```
-
-### Show user details
-
-```bash
-sudo sambo user show -username alice
-```
-
-### Change user password
-
-```bash
+# Change password
 sudo sambo user passwd -username alice -password newsecret789
-```
 
-### Remove a user
-
-```bash
-# Remove Samba user only
+# Remove user
 sudo sambo user remove -username alice
-
-# Remove both Samba and system user
-sudo sambo user remove -username alice -remove-system
-```
-
-## Common Workflows
-
-### Setting up a new shared folder
-
-```bash
-# 1. Create the directory
-sudo mkdir -p /mnt/shared
-
-# 2. Set permissions
-sudo chmod 775 /mnt/shared
-
-# 3. Create Samba users
-sudo sambo user add -username alice -password pass1
-sudo sambo user add -username bob -password pass2
-
-# 4. Create Samba share
-sudo sambo samba create \
-  -name shared \
-  -path /mnt/shared \
-  -users alice,bob \
-  -comment "Shared Team Folder"
-
-# 5. Create NFS export (optional, for Linux clients)
-sudo sambo nfs create \
-  -path /mnt/shared \
-  -clients 192.168.1.0/24
-```
-
-### Removing a share completely
-
-```bash
-# 1. Remove Samba share
-sudo sambo samba remove -name shared
-
-# 2. Remove NFS export
-sudo sambo nfs remove -path /mnt/shared
-
-# 3. Remove users (optional)
-sudo sambo user remove -username alice
-sudo sambo user remove -username bob
-```
-
-### Mounting a remote share persistently
-
-```bash
-# 1. Mount a remote CIFS share (from another server)
-sudo sambo mount cifs \
-  -source //192.168.1.200/documents \
-  -mountpoint /mnt/remote-docs \
-  -username john \
-  -password secret \
-  -persistent
-
-# 2. Mount a remote NFS share (from another server)
-sudo sambo mount nfs \
-  -source 192.168.1.201:/backups \
-  -mountpoint /mnt/remote-backups \
-  -persistent
-
-# 3. Verify mounts
-sudo sambo mount list
+sudo sambo user remove -username alice -remove-system  # Also remove system user
 ```
 
 ## Configuration Files
 
-Sambo modifies the following system configuration files:
+Sambo modifies the following system files (automatic backups are created before changes):
 
-- **Samba**: `/etc/samba/smb.conf`
-- **NFS**: `/etc/exports`
-- **Mounts**: `/etc/fstab` (for persistent mounts)
-
-Backups are created before modifications:
-
-- `/etc/samba/smb.conf.backup`
-- `/etc/exports.backup`
-- `/etc/fstab.backup`
+| File | Purpose | Backup |
+|------|---------|--------|
+| `/etc/samba/smb.conf` (Linux) or `/opt/homebrew/etc/smb.conf` (macOS) | Samba shares | `.backup` |
+| `/etc/exports` | NFS exports | `.backup` |
+| `/etc/fstab` (Linux) | Persistent mounts | `.backup` |
+| `/etc/auto_nfs` (macOS) | Persistent NFS mounts | `.backup` |
+| `/etc/avahi/services/samba.service` (Linux) | Time Machine mDNS | — |
 
 ## Troubleshooting
 
-### Samba issues
+### Samba
 
 ```bash
-# Test Samba configuration
-sudo testparm
-
-# Check Samba service status
-sudo systemctl status smbd
-
-# Restart Samba service
-sudo systemctl restart smbd
-
-# View Samba logs
-sudo journalctl -u smbd -f
+sudo testparm                    # Test configuration
+sudo systemctl status smbd       # Service status (Linux)
+brew services list               # Service status (macOS)
+sudo journalctl -u smbd -f      # Logs (Linux)
 ```
 
-### NFS issues
+### NFS
 
 ```bash
-# Check current exports
-sudo exportfs -v
-
-# Re-export all
-sudo exportfs -ra
-
-# Check NFS service status
-sudo systemctl status nfs-server
-# or
-sudo systemctl status nfs-kernel-server
-
-# View NFS logs
-sudo journalctl -u nfs-server -f
+sudo exportfs -v                 # Current exports
+sudo exportfs -ra                # Re-export all
+sudo systemctl status nfs-server # Status (Linux)
+sudo nfsd status                 # Status (macOS)
 ```
 
-### Mount issues
+### Mounts
 
 ```bash
-# List all network mounts
-sudo sambo mount list
-
-# Check if a share is mounted
-mount | grep cifs
-mount | grep nfs
-
-# View fstab entries
-cat /etc/fstab
-
-# Manually mount all fstab entries
-sudo mount -a
-
-# Check mount errors
-sudo dmesg | grep -i cifs
-sudo dmesg | grep -i nfs
-
-# For CIFS authentication issues, check credentials file
-sudo cat /root/.smbcredentials
-
-# Unmount a stuck mount
-sudo umount -f /mnt/mountpoint
-# or force lazy unmount
-sudo umount -l /mnt/mountpoint
-```
-
-### Permission issues
-
-```bash
-# Ensure directory exists and has correct permissions
-sudo ls -la /path/to/share
-
-# Fix ownership
-sudo chown -R nobody:nogroup /path/to/share
-
-# Fix permissions
-sudo chmod -R 775 /path/to/share
+sudo sambo mount list            # List network mounts
+mount | grep -E 'cifs|nfs'      # System mount check
+sudo dmesg | grep -iE 'cifs|nfs' # Kernel messages
+sudo umount -f /mnt/stuck        # Force unmount
 ```
 
 ## Security Considerations
 
-1. **Always use strong passwords** for Samba users
-2. **Limit NFS exports** to specific IP addresses or networks when possible
-3. **Use read-only mode** for shares that don't require write access
-4. **Regular backups** of configuration files are maintained automatically
-5. **Firewall rules**: Ensure appropriate ports are open
-   - Samba: 139, 445 (TCP)
-   - NFS: 2049 (TCP/UDP)
+1. **Strong passwords** for all Samba users
+2. **Restrict NFS exports** to specific IPs or subnets when possible
+3. **Read-only mode** for shares that don't require write access
+4. **Firewall ports**: Samba (139, 445 TCP), NFS (2049 TCP/UDP)
+5. **Credentials files** are stored with `0600` permissions in `/root/.sambo/`
 
 ## Development
 
@@ -688,63 +327,61 @@ sudo chmod -R 775 /path/to/share
 
 ```
 sambo/
-├── main.go              # Entry point
-├── cmd/                 # CLI commands
-│   ├── root.go         # Main command handler
-│   ├── samba.go        # Samba commands
-│   ├── nfs.go          # NFS commands
-│   ├── mount.go        # Network mount commands
-│   └── user.go         # User commands
-└── pkg/                 # Internal packages
-    ├── samba/          # Samba management
-    │   └── samba.go
-    ├── nfs/            # NFS management
-    │   └── nfs.go
-    ├── mount/          # Network mount management
-    │   └── mount.go
-    ├── user/           # User management
-    │   └── user.go
-    └── tui/            # Terminal UI
-        ├── tui.go
-        ├── forms.go
-        ├── views.go
-        └── select.go
+├── main.go                  # Entry point, version injection
+├── cmd/                     # CLI command handlers
+│   ├── root.go             # Command router, privilege checks
+│   ├── samba.go            # Samba share commands
+│   ├── nfs.go              # NFS export commands
+│   ├── mount.go            # Mount/unmount/scan commands
+│   └── user.go             # User management commands
+├── pkg/
+│   ├── samba/              # Samba Manager (DI pattern)
+│   │   ├── samba.go        # Manager, Create, Modify, Remove, List
+│   │   └── *_test.go       # Unit tests with mocked dependencies
+│   ├── nfs/                # NFS export management
+│   │   ├── nfs.go          # CRUD for /etc/exports
+│   │   └── options.go      # Shared NFS option builder
+│   ├── mount/              # Client-side mounting
+│   │   ├── mount.go        # Mount/unmount, fstab management
+│   │   └── discover.go     # NFS server discovery (subnet scan)
+│   ├── tui/                # Terminal UI (Bubble Tea)
+│   │   ├── tui.go          # Model-View-Update state machine
+│   │   ├── forms.go        # Form models for create/modify
+│   │   ├── views.go        # List and table rendering
+│   │   ├── select.go       # Selection dialogs
+│   │   └── dependencies.go # Dependency check and install flow
+│   ├── avahi/              # Avahi/Bonjour mDNS service files
+│   ├── platform/           # OS detection and path resolution
+│   ├── service/            # Service status checking and management
+│   ├── system/             # Interfaces: FileSystem, CommandExecutor, Platform
+│   ├── user/               # Samba user management (pdbedit, smbpasswd)
+│   ├── validate/           # Input validation (paths, names, sources)
+│   └── confirm/            # Interactive confirmation prompts
+├── scripts/                # Install scripts, macOS client setup
+└── Makefile                # Build, test, release targets
 ```
 
-### Building
+### Build & Test
 
 ```bash
-# Development build
-go build -o sambo
-
-# Production build with optimizations
-go build -ldflags="-s -w" -o sambo
-
-# Cross-compile for different architectures
-GOOS=linux GOARCH=amd64 go build -o sambo-amd64
-GOOS=linux GOARCH=arm64 go build -o sambo-arm64
+make build          # Build binary to ./build/sambo
+make build-all      # Cross-compile for all platforms
+make test           # Run tests
+make test-cover     # Tests with coverage report
+make test-race      # Tests with race detector
+make lint           # Run golangci-lint
+make fmt            # Format code
+make install        # Build and install to /usr/local/bin
+make release        # Create release tarballs
+make package-macos  # Create macOS .pkg installers
 ```
-
-## License
-
-This project is provided as-is for managing Linux file shares.
-
-## Contributing
-
-Feel free to submit issues and enhancement requests!
-
-## Version
-
-v1.5.1
 
 ## Credits
 
-- **Samba Team**: For the core file sharing capabilities.
-- **Bubble Tea**: For the amazing TUI framework.
-- **Contributors**:
-    - Carter (Project Lead)
-    - Claude / Gemini (AI Assistants)
+- **[Samba Team](https://www.samba.org/)** — Core file sharing capabilities
+- **[Charm](https://charm.sh/)** — Bubble Tea, Bubbles, and Lipgloss for the TUI
+- **Contributors**: Carter (Project Lead), Claude / Gemini (AI Assistants)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
