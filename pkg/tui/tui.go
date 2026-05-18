@@ -334,13 +334,13 @@ func (m model) renderMessage() string {
 	prefix := "\n\n"
 	switch m.messageType {
 	case "error":
-		return prefix + errorStyle.Render(" ✗ "+m.message+" ")
+		return prefix + errorStyle.Render(" [x] "+m.message+" ")
 	case "success":
-		return prefix + successStyle.Render(" ✓ "+m.message+" ")
+		return prefix + successStyle.Render(" [+] "+m.message+" ")
 	case "warning":
-		return prefix + warningStyle.Render(" ⚠ "+m.message+" ")
+		return prefix + warningStyle.Render(" [!] "+m.message+" ")
 	default:
-		return prefix + infoStyle.Render(" ℹ "+m.message+" ")
+		return prefix + infoStyle.Render(" [i] "+m.message+" ")
 	}
 }
 
@@ -352,17 +352,17 @@ func (m model) viewMainMenu() string {
 
 	menuContent := ""
 	items := []string{
-		"📁 Manage Samba Shares",
-		"🌐 Manage NFS Exports",
-		"💾 Manage Network Mounts",
-		"👤 Manage Users",
-		"🔧 Check & Install Dependencies",
-		"🚪 Exit",
+		"Samba Shares",
+		"NFS Exports",
+		"Network Mounts",
+		"Users",
+		"Dependencies",
+		"Exit",
 	}
 	for i, item := range items {
 		cursor := " "
 		if m.cursor == i {
-			cursor = "▶"
+			cursor = "›"
 			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
 		} else {
 			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
@@ -437,11 +437,11 @@ func (m model) viewSambaMenu() string {
 	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
 
 	return s + m.renderSubMenu([]string{
-		"📋 List Shares",
-		"➕ Create Share",
-		"✏️  Modify Share",
-		"🗑️  Remove Share",
-		"⬅️  Back to Main Menu",
+		"List Shares",
+		"Create Share",
+		"Modify Share",
+		"Remove Share",
+		"Back",
 	})
 }
 
@@ -457,11 +457,11 @@ func (m model) viewNFSMenu() string {
 	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
 
 	return s + m.renderSubMenu([]string{
-		"📋 List Exports",
-		"➕ Create Export",
-		"✏️  Modify Export",
-		"🗑️  Remove Export",
-		"⬅️  Back to Main Menu",
+		"List Exports",
+		"Create Export",
+		"Modify Export",
+		"Remove Export",
+		"Back",
 	})
 }
 
@@ -483,13 +483,13 @@ func (m model) viewMountMenu() string {
 	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
 
 	return s + m.renderSubMenu([]string{
-		"📋 List Mounts",
-		"💾 Mount CIFS/SMB Share",
-		"🌐 Mount NFS Share",
-		"✏️  Edit Mount",
-		"⏏️  Unmount Share",
-		"🔍 Discover NFS Servers",
-		"⬅️  Back to Main Menu",
+		"List Mounts",
+		"Mount CIFS/SMB",
+		"Mount NFS",
+		"Edit Mount",
+		"Unmount",
+		"Discover NFS Servers",
+		"Back",
 	})
 }
 
@@ -505,11 +505,11 @@ func (m model) viewUserMenu() string {
 	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
 
 	return s + m.renderSubMenu([]string{
-		"📋 List Users",
-		"➕ Add User",
-		"🔑 Change Password",
-		"🗑️  Remove User",
-		"⬅️  Back to Main Menu",
+		"List Users",
+		"Add User",
+		"Change Password",
+		"Remove User",
+		"Back",
 	})
 }
 
@@ -526,7 +526,7 @@ func (m model) renderSubMenu(items []string) string {
 	for i, item := range items {
 		cursor := " "
 		if m.cursor == i {
-			cursor = "▶"
+			cursor = "›"
 			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
 		} else {
 			menuContent += menuStyle.Render(cursor+" "+item) + "\n"

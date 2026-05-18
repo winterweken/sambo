@@ -47,17 +47,17 @@ var (
 )
 
 func (m model) viewSambaList() string {
-	s := titleStyle.Render(" 📁 Samba Shares ") + "\n\n"
+	s := titleStyle.Render(" Samba Shares ") + "\n\n"
 
 	shares, err := m.sambaManager.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading shares: %v ", err)) + "\n\n"
+		s += errorStyle.Render(fmt.Sprintf(" [x] Error loading shares: %v ", err)) + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(shares) == 0 {
-		s += emptyStateStyle.Render("📭 No Samba shares configured yet.\n\nUse 'Create Share' to add your first share.") + "\n\n"
+		s += emptyStateStyle.Render("No Samba shares configured yet.\n\nUse 'Create Share' to add your first share.") + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
@@ -109,17 +109,17 @@ func (m model) viewSambaList() string {
 }
 
 func (m model) viewNFSList() string {
-	s := titleStyle.Render(" 🌐 NFS Exports ") + "\n\n"
+	s := titleStyle.Render(" NFS Exports ") + "\n\n"
 
 	exports, err := nfs.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading exports: %v ", err)) + "\n\n"
+		s += errorStyle.Render(fmt.Sprintf(" [x] Error loading exports: %v ", err)) + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(exports) == 0 {
-		s += emptyStateStyle.Render("📭 No NFS exports configured yet.\n\nUse 'Create Export' to add your first export.") + "\n\n"
+		s += emptyStateStyle.Render("No NFS exports configured yet.\n\nUse 'Create Export' to add your first export.") + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
@@ -152,17 +152,17 @@ func (m model) viewNFSList() string {
 }
 
 func (m model) viewUserList() string {
-	s := titleStyle.Render(" 👤 Samba Users ") + "\n\n"
+	s := titleStyle.Render(" Samba Users ") + "\n\n"
 
 	users, err := user.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading users: %v ", err)) + "\n\n"
+		s += errorStyle.Render(fmt.Sprintf(" [x] Error loading users: %v ", err)) + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(users) == 0 {
-		s += emptyStateStyle.Render("📭 No Samba users configured yet.\n\nUse 'Add User' to create your first user.") + "\n\n"
+		s += emptyStateStyle.Render("No Samba users configured yet.\n\nUse 'Add User' to create your first user.") + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
@@ -200,17 +200,17 @@ func (m model) viewUserList() string {
 }
 
 func (m model) viewMountList() string {
-	s := titleStyle.Render(" 💾 Network Mounts ") + "\n\n"
+	s := titleStyle.Render(" Network Mounts ") + "\n\n"
 
 	mounts, err := mount.List()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf(" ✗ Error loading mounts: %v ", err)) + "\n\n"
+		s += errorStyle.Render(fmt.Sprintf(" [x] Error loading mounts: %v ", err)) + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(mounts) == 0 {
-		s += emptyStateStyle.Render("📭 No network mounts found.\n\nUse 'Mount CIFS/SMB' or 'Mount NFS' to add mounts.") + "\n\n"
+		s += emptyStateStyle.Render("No network mounts found.\n\nUse 'Mount CIFS/SMB' or 'Mount NFS' to add mounts.") + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
@@ -263,12 +263,12 @@ func (m model) viewMountList() string {
 }
 
 func (m model) viewMountDiscover() string {
-	s := titleStyle.Render(" 🔍 NFS Server Discovery ") + "\n\n"
+	s := titleStyle.Render(" NFS Server Discovery ") + "\n\n"
 
 	// Get local subnet
 	subnet, err := mount.GetLocalSubnet()
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf(" ✗ Failed to detect subnet: %v ", err)) + "\n\n"
+		s += errorStyle.Render(fmt.Sprintf(" [x] Failed to detect subnet: %v ", err)) + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
@@ -278,18 +278,18 @@ func (m model) viewMountDiscover() string {
 	// Perform discovery
 	servers, err := mount.DiscoverNFSServers(subnet, 300*time.Millisecond)
 	if err != nil {
-		s += errorStyle.Render(fmt.Sprintf(" ✗ Scan failed: %v ", err)) + "\n\n"
+		s += errorStyle.Render(fmt.Sprintf(" [x] Scan failed: %v ", err)) + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
 	if len(servers) == 0 {
-		s += emptyStateStyle.Render("📭 No NFS servers found on the network.\n\nMake sure NFS servers are running and accessible.") + "\n\n"
+		s += emptyStateStyle.Render("No NFS servers found on the network.\n\nMake sure NFS servers are running and accessible.") + "\n\n"
 		s += helpBoxStyle.Render("Press ESC to go back")
 		return s
 	}
 
-	s += successStyle.Render(fmt.Sprintf(" ✓ Found %d NFS server(s) ", len(servers))) + "\n\n"
+	s += successStyle.Render(fmt.Sprintf(" [+] Found %d NFS server(s) ", len(servers))) + "\n\n"
 
 	for _, server := range servers {
 		// Server header

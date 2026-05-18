@@ -130,21 +130,21 @@ func (m model) viewDependencies() string {
 	// Menu items
 	menuItems := make([]string, 0)
 	for _, comp := range components {
-		status := "❌ Not Installed"
+		status := "[-] Not Installed"
 		if comp.installed {
-			status = "✅ Installed"
+			status = "[+] Installed"
 		}
 		// Shorter format: just status + displayName (no package list to prevent wrapping)
 		menuItems = append(menuItems, fmt.Sprintf("%s - %s", status, comp.displayName))
 	}
-	menuItems = append(menuItems, "⬅️  Back to Main Menu")
+	menuItems = append(menuItems, "Back")
 
 	// Render menu
 	boxContent := ""
 	for i, item := range menuItems {
 		cursor := " "
 		if m.cursor == i {
-			cursor = "▶"
+			cursor = "›"
 			boxContent += selectedStyle.Render(cursor+" "+item) + "\n"
 		} else {
 			boxContent += menuStyle.Render(cursor+" "+item) + "\n"
@@ -166,7 +166,7 @@ func (m model) viewDependencies() string {
 	// Warning for unknown package manager
 	if pm == system.UNKNOWN {
 		s.WriteString("\n\n")
-		s.WriteString(warningStyle.Render(" ⚠ Unable to detect package manager. Manual installation required. "))
+		s.WriteString(warningStyle.Render(" [!] Unable to detect package manager. Manual installation required. "))
 	}
 
 	s.WriteString(m.renderMessage())
@@ -221,7 +221,7 @@ func (m model) handleDependenciesEnter() (tea.Model, tea.Cmd) {
 
 func (m model) handleInstallMsg(msg installMsg) (tea.Model, tea.Cmd) {
 	if msg.success {
-		m.message = fmt.Sprintf("✅ Successfully installed %s", msg.component)
+		m.message = fmt.Sprintf("Successfully installed %s", msg.component)
 		m.messageType = "success"
 	} else {
 		m.message = fmt.Sprintf("Failed to install %s: %v", msg.component, msg.err)

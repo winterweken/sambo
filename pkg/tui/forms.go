@@ -22,7 +22,7 @@ var (
 	focusedButton = focusedStyle.Copy().Render("[ Submit ]")
 	blurredButton = fmt.Sprintf("[ %s ]", blurredStyle.Render("Submit"))
 
-	checkboxChecked   = focusedStyle.Render("[✓]")
+	checkboxChecked   = focusedStyle.Render("[x]")
 	checkboxUnchecked = blurredStyle.Render("[ ]")
 )
 
@@ -1182,9 +1182,9 @@ func (fm formModel) View() string {
 	if fm.message != "" {
 		b.WriteString("\n\n")
 		if fm.messageType == "error" {
-			b.WriteString(errorStyle.Render("✗ " + fm.message))
+			b.WriteString(errorStyle.Render("[x] " + fm.message))
 		} else if fm.messageType == "success" {
-			b.WriteString(successStyle.Render("✓ " + fm.message))
+			b.WriteString(successStyle.Render("[+] " + fm.message))
 		}
 	}
 
