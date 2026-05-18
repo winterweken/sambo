@@ -2,7 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"sambo/pkg/mount"
+	"sambo/pkg/nfs"
 	"sambo/pkg/samba"
+	"sambo/pkg/user"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -101,6 +104,19 @@ var (
 	infoStyle = lipgloss.NewStyle().
 			Foreground(infoColor).
 			Padding(0, 1)
+
+	// Braille divider style
+	brailleDividerStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#C7D2FE", Dark: "#3730A3"}).
+				MarginTop(0).
+				MarginBottom(0)
+
+	// Dashboard strip style
+	dashboardStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#1F2937"}).
+			Padding(0, 2).
+			MarginTop(0)
 )
 
 type screen int
@@ -329,63 +345,20 @@ func (m model) renderMessage() string {
 }
 
 func (m model) viewMainMenu() string {
-	return m.renderMenuView(" Sambo - Linux Share Management ", []string{
+	// Braille network topology banner
+	s := BrailleBanner()
+
+	s += titleStyle.Render(" Sambo — Share Management ") + "\n\n"
+
+	menuContent := ""
+	items := []string{
 		"📁 Manage Samba Shares",
 		"🌐 Manage NFS Exports",
 		"💾 Manage Network Mounts",
 		"👤 Manage Users",
 		"🔧 Check & Install Dependencies",
 		"🚪 Exit",
-	}, false)
-}
-
-func (m model) viewSambaMenu() string {
-	return m.renderMenuView(" Samba Share Management ", []string{
-		"📋 List Shares",
-		"➕ Create Share",
-		"✏️  Modify Share",
-		"🗑️  Remove Share",
-		"⬅️  Back to Main Menu",
-	}, true)
-}
-
-func (m model) viewNFSMenu() string {
-	return m.renderMenuView(" NFS Export Management ", []string{
-		"📋 List Exports",
-		"➕ Create Export",
-		"✏️  Modify Export",
-		"🗑️  Remove Export",
-		"⬅️  Back to Main Menu",
-	}, true)
-}
-
-func (m model) viewMountMenu() string {
-	return m.renderMenuView(" Network Mount Management ", []string{
-		"📋 List Mounts",
-		"💾 Mount CIFS/SMB Share",
-		"🌐 Mount NFS Share",
-		"✏️  Edit Mount",
-		"⏏️  Unmount Share",
-		"🔍 Discover NFS Servers",
-		"⬅️  Back to Main Menu",
-	}, true)
-}
-
-func (m model) viewUserMenu() string {
-	return m.renderMenuView(" User Management ", []string{
-		"📋 List Users",
-		"➕ Add User",
-		"🔑 Change Password",
-		"🗑️  Remove User",
-		"⬅️  Back to Main Menu",
-	}, true)
-}
-
-// renderMenuView renders a standard menu with title, items, cursor, and optional back-nav help text
-func (m model) renderMenuView(title string, items []string, hasBack bool) string {
-	s := titleStyle.Render(title) + "\n\n"
-
-	menuContent := ""
+	}
 	for i, item := range items {
 		cursor := " "
 		if m.cursor == i {
@@ -398,14 +371,200 @@ func (m model) renderMenuView(title string, items []string, hasBack bool) string
 
 	s += menuBoxStyle.Render(menuContent)
 
-	if hasBack {
-		s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
-	} else {
-		s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • Q: Quit")
-	}
+	// Braille wave divider
+	s += "\n" + brailleDividerStyle.Render(BrailleWaveDivider(48))
+
+	// Service status dashboard
+	services := m.gatherServiceStatus()
+	s += "\n" + dashboardStyle.Render(BrailleStatusDashboard(services))
+
+	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • Q: Quit")
 	s += m.renderMessage()
 
 	return s + "\n"
+}
+
+// gatherServiceStatus collects service state for the dashboard strip.
+func (m model) gatherServiceStatus() []ServiceStatus {
+	// Samba shares count
+	sambaCount := 0
+	if shares, err := m.sambaManager.List(); err == nil {
+		sambaCount = len(shares)
+	}
+
+	// NFS exports count
+	nfsCount := 0
+	if exports, err := nfs.List(); err == nil {
+		nfsCount = len(exports)
+	}
+
+	// Network mounts count
+	mountCount := 0
+	activeMounts := 0
+	if mounts, err := mount.List(); err == nil {
+		mountCount = len(mounts)
+		for _, mnt := range mounts {
+			if mnt.Active {
+				activeMounts++
+			}
+		}
+	}
+
+	// User count
+	userCount := 0
+	if users, err := user.List(); err == nil {
+		userCount = len(users)
+	}
+
+	return []ServiceStatus{
+		{Name: "SMB", Active: sambaCount > 0, Count: sambaCount},
+		{Name: "NFS", Active: nfsCount > 0, Count: nfsCount},
+		{Name: "MNT", Active: activeMounts > 0, Count: mountCount},
+		{Name: "USR", Active: userCount > 0, Count: userCount},
+	}
+}
+
+func (m model) viewSambaMenu() string {
+	// Show sparkline of share count as decorative element
+	count := 0
+	if shares, err := m.sambaManager.List(); err == nil {
+		count = len(shares)
+	}
+	sparkData := itemCountSparkline(count, 8)
+	sparkStyle := lipgloss.NewStyle().Foreground(primaryColor)
+
+	s := titleStyle.Render(" Samba Share Management ") + "\n"
+	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
+
+	return s + m.renderSubMenu([]string{
+		"📋 List Shares",
+		"➕ Create Share",
+		"✏️  Modify Share",
+		"🗑️  Remove Share",
+		"⬅️  Back to Main Menu",
+	})
+}
+
+func (m model) viewNFSMenu() string {
+	count := 0
+	if exports, err := nfs.List(); err == nil {
+		count = len(exports)
+	}
+	sparkData := itemCountSparkline(count, 8)
+	sparkStyle := lipgloss.NewStyle().Foreground(secondaryColor)
+
+	s := titleStyle.Render(" NFS Export Management ") + "\n"
+	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
+
+	return s + m.renderSubMenu([]string{
+		"📋 List Exports",
+		"➕ Create Export",
+		"✏️  Modify Export",
+		"🗑️  Remove Export",
+		"⬅️  Back to Main Menu",
+	})
+}
+
+func (m model) viewMountMenu() string {
+	count := 0
+	activeCount := 0
+	if mounts, err := mount.List(); err == nil {
+		count = len(mounts)
+		for _, mnt := range mounts {
+			if mnt.Active {
+				activeCount++
+			}
+		}
+	}
+	sparkData := itemCountSparkline(activeCount, count)
+	sparkStyle := lipgloss.NewStyle().Foreground(successColor)
+
+	s := titleStyle.Render(" Network Mount Management ") + "\n"
+	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
+
+	return s + m.renderSubMenu([]string{
+		"📋 List Mounts",
+		"💾 Mount CIFS/SMB Share",
+		"🌐 Mount NFS Share",
+		"✏️  Edit Mount",
+		"⏏️  Unmount Share",
+		"🔍 Discover NFS Servers",
+		"⬅️  Back to Main Menu",
+	})
+}
+
+func (m model) viewUserMenu() string {
+	count := 0
+	if users, err := user.List(); err == nil {
+		count = len(users)
+	}
+	sparkData := itemCountSparkline(count, 8)
+	sparkStyle := lipgloss.NewStyle().Foreground(warningColor)
+
+	s := titleStyle.Render(" User Management ") + "\n"
+	s += sparkStyle.Render("  " + BrailleSparkline(sparkData, 20)) + "\n\n"
+
+	return s + m.renderSubMenu([]string{
+		"📋 List Users",
+		"➕ Add User",
+		"🔑 Change Password",
+		"🗑️  Remove User",
+		"⬅️  Back to Main Menu",
+	})
+}
+
+// renderMenuView renders a standard menu with title, items, cursor, and optional back-nav help text
+func (m model) renderMenuView(title string, items []string, hasBack bool) string {
+	s := titleStyle.Render(title) + "\n\n"
+	s += m.renderSubMenu(items)
+	return s
+}
+
+// renderSubMenu renders menu items with cursor, help bar, and messages.
+func (m model) renderSubMenu(items []string) string {
+	menuContent := ""
+	for i, item := range items {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
+		} else {
+			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
+		}
+	}
+
+	s := menuBoxStyle.Render(menuContent)
+	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	s += m.renderMessage()
+
+	return s + "\n"
+}
+
+// itemCountSparkline generates sparkline data that visually represents
+// a count relative to a max, creating a gentle hill shape.
+func itemCountSparkline(count, maxCount int) []float64 {
+	if maxCount <= 0 {
+		maxCount = 1
+	}
+	ratio := float64(count) / float64(maxCount)
+	if ratio > 1 {
+		ratio = 1
+	}
+
+	// Generate a smooth curve that peaks at `ratio` height
+	points := make([]float64, 20)
+	for i := range points {
+		t := float64(i) / float64(len(points)-1)
+		// Bell curve centered at 0.5, height proportional to ratio
+		points[i] = ratio * bellCurve(t, 0.5, 0.2)
+	}
+	return points
+}
+
+// bellCurve returns a gaussian-like value at position t.
+func bellCurve(t, center, width float64) float64 {
+	d := (t - center) / width
+	return clamp(1.0-d*d, 0, 1)
 }
 
 func (m model) getMaxCursor() int {
