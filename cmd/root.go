@@ -1,13 +1,15 @@
 package cmd
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"sambo/pkg/samba"
 	"sambo/pkg/system"
 	"sambo/pkg/tui"
 )
+
+// Version is set from main.go at startup (injected via ldflags)
+var Version = "dev"
 
 var (
 	// Global managers
@@ -38,7 +40,7 @@ func Execute() error {
 		printUsage()
 		return nil
 	case "version", "-v", "--version":
-		fmt.Println("sambo v1.5.1 - Share Management CLI for Linux and macOS")
+		fmt.Printf("sambo %s - Share Management CLI for Linux and macOS\n", Version)
 		return nil
 	}
 
@@ -99,7 +101,3 @@ EXAMPLES:
     sambo user add -username john -password secret`)
 }
 
-func parseFlags(args []string) *flag.FlagSet {
-	fs := flag.NewFlagSet("", flag.ExitOnError)
-	return fs
-}

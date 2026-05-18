@@ -3,7 +3,6 @@ package cmd
 import (
 	"flag"
 	"fmt"
-	"strings"
 
 	"sambo/pkg/confirm"
 	"sambo/pkg/nfs"
@@ -80,26 +79,9 @@ func nfsCreate(args []string) error {
 		Clients: *clients,
 	}
 
-	// Build options
-	options := []string{}
-	if *readOnly {
-		options = append(options, "ro")
-	} else {
-		options = append(options, "rw")
-	}
-	if *sync {
-		options = append(options, "sync")
-	} else {
-		options = append(options, "async")
-	}
-	if *noRootSquash {
-		options = append(options, "no_root_squash")
-	} else {
-		options = append(options, "root_squash")
-	}
-	options = append(options, "no_subtree_check")
-
-	export.Options = strings.Join(options, ",")
+	// Build options using shared helper
+	// Note: sync flag is inverted — CLI uses -sync=true (default), BuildOptions takes asyncMode
+	export.Options = nfs.BuildOptions(*readOnly, !*sync, *noRootSquash)
 
 	if err := nfs.Create(export); err != nil {
 		return fmt.Errorf("failed to create nfs export: %w", err)
@@ -154,26 +136,8 @@ func nfsModify(args []string) error {
 		updates["clients"] = *clients
 	}
 
-	// Rebuild options if any option flags were provided
-	options := []string{}
-	if *readOnly {
-		options = append(options, "ro")
-	} else {
-		options = append(options, "rw")
-	}
-	if *sync {
-		options = append(options, "sync")
-	} else {
-		options = append(options, "async")
-	}
-	if *noRootSquash {
-		options = append(options, "no_root_squash")
-	} else {
-		options = append(options, "root_squash")
-	}
-	options = append(options, "no_subtree_check")
-
-	updates["options"] = strings.Join(options, ",")
+	// Rebuild options using shared helper
+	updates["options"] = nfs.BuildOptions(*readOnly, !*sync, *noRootSquash)
 
 	if err := nfs.Modify(*path, updates); err != nil {
 		return fmt.Errorf("failed to modify nfs export: %w", err)

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"sambo/pkg/system"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type installMsg struct {
@@ -133,8 +134,8 @@ func (m model) viewDependencies() string {
 		if comp.installed {
 			status = "✅ Installed"
 		}
-		pkgList := strings.Join(comp.packages, ", ")
-		menuItems = append(menuItems, fmt.Sprintf("%s - %s (%s)", status, comp.displayName, pkgList))
+		// Shorter format: just status + displayName (no package list to prevent wrapping)
+		menuItems = append(menuItems, fmt.Sprintf("%s - %s", status, comp.displayName))
 	}
 	menuItems = append(menuItems, "⬅️  Back to Main Menu")
 

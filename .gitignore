@@ -1,5 +1,6 @@
 # Binaries
 sambo
+sambo-*
 *.exe
 *.exe~
 *.dll

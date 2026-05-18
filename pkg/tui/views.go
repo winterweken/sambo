@@ -7,48 +7,43 @@ import (
 	"sambo/pkg/user"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
-	// Table styles
+	// Table styles - Friendly Refresh & Spaced Out
 	tableHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}).
-				Background(lipgloss.AdaptiveColor{Light: "#F0E6FF", Dark: "#2A1A3F"}).
-				Padding(0, 1).
-				BorderStyle(lipgloss.RoundedBorder()).
-				BorderTop(true).
-				BorderBottom(true).
-				BorderLeft(true).
-				BorderRight(true).
-				BorderForeground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"})
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(lipgloss.AdaptiveColor{Light: "#818CF8", Dark: "#6366F1"}). // Indigo
+				Padding(1, 2).                                                         // Taller header
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#C7D2FE", Dark: "#4F46E5"})
 
 	tableRowStyle = lipgloss.NewStyle().
-			PaddingLeft(1).
-			PaddingRight(1).
-			Foreground(lipgloss.AdaptiveColor{Light: "#333", Dark: "#FFF"})
+			Padding(0, 2). // More horizontal padding
+			Foreground(lipgloss.AdaptiveColor{Light: "#4B5563", Dark: "#D1D5DB"})
 
 	tableAltRowStyle = lipgloss.NewStyle().
-				PaddingLeft(1).
-				PaddingRight(1).
-				Background(lipgloss.AdaptiveColor{Light: "#F8F8F8", Dark: "#222222"}).
-				Foreground(lipgloss.AdaptiveColor{Light: "#333", Dark: "#DDD"})
+				Padding(0, 2).
+				Background(lipgloss.AdaptiveColor{Light: "#F3F4F6", Dark: "#1F2937"}). // Gray-100/800
+				Foreground(lipgloss.AdaptiveColor{Light: "#4B5563", Dark: "#D1D5DB"})
 
 	tableBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}).
-			Padding(1, 2).
-			MarginTop(1)
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#374151"}).
+			Padding(1, 1). // Add padding inside the box
+			MarginTop(0)
 
 	emptyStateStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#999", Dark: "#666"}).
+			Foreground(lipgloss.AdaptiveColor{Light: "#9CA3AF", Dark: "#6B7280"}).
 			Italic(true).
 			Padding(2, 4).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#DDD", Dark: "#333"}).
-			BorderStyle(lipgloss.NormalBorder())
+			Align(lipgloss.Center).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#374151"})
 )
 
 func (m model) viewSambaList() string {
@@ -323,13 +318,13 @@ func (m model) viewMountDiscover() string {
 	return s + "\n"
 }
 
-// Helper function to truncate strings
+// truncate shortens a string to maxLen runes, appending "..." if truncated.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
 	if maxLen <= 3 {
-		return s[:maxLen]
+		return string([]rune(s)[:maxLen])
 	}
-	return s[:maxLen-3] + "..."
+	return string([]rune(s)[:maxLen-3]) + "..."
 }

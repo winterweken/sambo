@@ -3,6 +3,7 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"os"
 	"sambo/pkg/mount"
 	"sambo/pkg/platform"
 	"strings"
@@ -93,6 +94,12 @@ func mountCIFS(args []string) error {
 		return fmt.Errorf("source and mountpoint are required")
 	}
 
+	// Security warning for password flag
+	if *password != "" {
+		fmt.Println("⚠️  WARNING: Using -password on the command line is insecure. Your password may be visible in process listings.")
+		fmt.Println("   Consider using interactive mode or the TUI instead.")
+	}
+
 	// Build options string
 	var opts []string
 	if *options != "" {
@@ -110,12 +117,31 @@ func mountCIFS(args []string) error {
 		opts = append(opts, "credentials=/root/.smbcredentials")
 	}
 
-	// Add default options
-	if !contains(opts, "uid") {
-		opts = append(opts, "uid=1000")
-	}
-	if !contains(opts, "gid") {
-		opts = append(opts, "gid=1000")
+	// Handle UID/GID settings
+	// Check if uid/gid are explicitly set in options
+	hasUID := contains(opts, "uid")
+	hasGID := contains(opts, "gid")
+
+	// If not set, try to detect sudo user
+	if !hasUID || !hasGID {
+		sudoUID := os.Getenv("SUDO_UID")
+		sudoGID := os.Getenv("SUDO_GID")
+
+		if sudoUID != "" && !hasUID {
+			opts = append(opts, fmt.Sprintf("uid=%s", sudoUID))
+			hasUID = true
+		} else if !hasUID {
+			// Fallback to default
+			opts = append(opts, "uid=1000")
+		}
+
+		if sudoGID != "" && !hasGID {
+			opts = append(opts, fmt.Sprintf("gid=%s", sudoGID))
+			hasGID = true
+		} else if !hasGID {
+			// Fallback to default
+			opts = append(opts, "gid=1000")
+		}
 	}
 
 	optionsStr := strings.Join(opts, ",")

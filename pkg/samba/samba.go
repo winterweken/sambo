@@ -574,7 +574,6 @@ func (m *Manager) Remove(name string) error {
 	}
 
 	// Reload Samba
-	// Reload Samba
 	if err := m.reloadSamba(); err != nil {
 		return err
 	}
@@ -683,31 +682,9 @@ func (m *Manager) Modify(name string, updates map[string]interface{}) error {
 		config.WriteString(fmt.Sprintf("   valid users = %s\n", strings.Join(share.ValidUsers, " ")))
 	}
 
-	if share.TimeMachine {
-		config.WriteString("   vfs objects = catia fruit streams_xattr\n")
-		config.WriteString("   fruit:metadata = stream\n")
-		config.WriteString("   fruit:model = MacSamba\n")
-		config.WriteString("   fruit:veto_appledouble = no\n")
-		config.WriteString("   fruit:posix_rename = yes\n")
-		config.WriteString("   fruit:zero_file_id = yes\n")
-		config.WriteString("   fruit:wipe_intentionally_left_blank_rfork = yes\n")
-		config.WriteString("   fruit:delete_empty_adfiles = yes\n")
-		config.WriteString("   fruit:aapl = yes\n")
-		config.WriteString("   fruit:time machine = yes\n")
-		// Add max size if specified (0 or empty means unlimited)
-		maxSize := share.TimeMachineMaxSize
-		if maxSize == "" {
-			maxSize = "0" // Default to unlimited
-		}
-		if maxSize != "0" {
-			config.WriteString(fmt.Sprintf("   fruit:time machine max size = %s\n", maxSize))
-		}
-		// Additional reliability options for Time Machine
-		config.WriteString("   durable handles = yes\n")
-		config.WriteString("   kernel oplocks = no\n")
-		config.WriteString("   kernel share modes = no\n")
-		config.WriteString("   posix locking = no\n")
-	}
+	// Add share type-specific configuration (Time Machine, Unifi Protect, Media, etc.)
+	effectiveType := share.GetEffectiveShareType()
+	m.writeShareTypeConfig(&config, *share, effectiveType)
 
 	// Combine: existing content (minus old share) + new share config
 	newContent := strings.Join(newLines, "\n") + config.String()
@@ -731,7 +708,6 @@ func (m *Manager) Modify(name string, updates map[string]interface{}) error {
 		return fmt.Errorf("failed to apply config: %w", err)
 	}
 
-	// Reload Samba
 	// Reload Samba
 	if err := m.reloadSamba(); err != nil {
 		return err

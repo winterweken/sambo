@@ -17,7 +17,6 @@ import (
 var (
 	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
 	blurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	cursorStyle  = focusedStyle.Copy()
 	noStyle      = lipgloss.NewStyle()
 
 	focusedButton = focusedStyle.Copy().Render("[ Submit ]")
@@ -366,10 +365,11 @@ func newNFSModifyForm(exportPath string) (formModel, error) {
 		return formModel{}, err
 	}
 
-	// Parse existing options
-	readOnly := strings.Contains(export.Options, "ro")
-	noRootSquash := strings.Contains(export.Options, "no_root_squash")
-	asyncMode := strings.Contains(export.Options, "async")
+	// Parse existing options using exact match (avoid substring false positives)
+	optionParts := strings.Split(export.Options, ",")
+	readOnly := containsExact(optionParts, "ro")
+	noRootSquash := containsExact(optionParts, "no_root_squash")
+	asyncMode := containsExact(optionParts, "async")
 
 	inputs := make([]formField, 5)
 
@@ -736,32 +736,10 @@ func (fm formModel) submitNFSCreate(parent *model) (formModel, tea.Cmd) {
 		clients = "*"
 	}
 
-	// Build options string based on selections
-	var options []string
-	if readOnly {
-		options = append(options, "ro")
-	} else {
-		options = append(options, "rw")
-	}
-
-	if asyncMode {
-		options = append(options, "async")
-	} else {
-		options = append(options, "sync")
-	}
-
-	if noRootSquash {
-		options = append(options, "no_root_squash")
-	} else {
-		options = append(options, "root_squash")
-	}
-
-	options = append(options, "no_subtree_check")
-
 	export := nfs.Export{
 		Path:    path,
 		Clients: clients,
-		Options: strings.Join(options, ","),
+		Options: nfs.BuildOptions(readOnly, asyncMode, noRootSquash),
 	}
 
 	if err := nfs.Create(export); err != nil {
@@ -809,39 +787,17 @@ func (fm formModel) submitNFSModify(parent *model) (formModel, tea.Cmd) {
 		clients = "*"
 	}
 
-	// Build options string based on selections
-	var options []string
-	if readOnly {
-		options = append(options, "ro")
-	} else {
-		options = append(options, "rw")
+	export := nfs.Export{
+		Path:    fm.originalName,
+		Clients: clients,
+		Options: nfs.BuildOptions(readOnly, asyncMode, noRootSquash),
 	}
-
-	if asyncMode {
-		options = append(options, "async")
-	} else {
-		options = append(options, "sync")
-	}
-
-	if noRootSquash {
-		options = append(options, "no_root_squash")
-	} else {
-		options = append(options, "root_squash")
-	}
-
-	options = append(options, "no_subtree_check")
 
 	// Remove and re-create the export
 	if err := nfs.Remove(fm.originalName); err != nil {
 		fm.message = fmt.Sprintf("Failed to modify export: %v", err)
 		fm.messageType = "error"
 		return fm, nil
-	}
-
-	export := nfs.Export{
-		Path:    fm.originalName,
-		Clients: clients,
-		Options: strings.Join(options, ","),
 	}
 
 	if err := nfs.Create(export); err != nil {
@@ -1266,4 +1222,14 @@ func newMountEditForm(mountPoint string) (formModel, error) {
 		formType:     "mount-edit",
 		returnScreen: screenMountMenu,
 	}, nil
+}
+
+// containsExact checks if a string slice contains an exact match (trimmed)
+func containsExact(slice []string, target string) bool {
+	for _, item := range slice {
+		if strings.TrimSpace(item) == target {
+			return true
+		}
+	}
+	return false
 }

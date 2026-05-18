@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"os"
 	"os/exec"
 	"runtime"
 )
@@ -46,10 +47,10 @@ func HasHomebrew() bool {
 func SambaConfigPath() string {
 	if IsMacOS() {
 		// Check Homebrew location first
-		if _, err := exec.LookPath("/opt/homebrew/etc/smb.conf"); err == nil {
+		if _, err := os.Stat("/opt/homebrew/etc/smb.conf"); err == nil {
 			return "/opt/homebrew/etc/smb.conf"
 		}
-		if _, err := exec.LookPath("/usr/local/etc/smb.conf"); err == nil {
+		if _, err := os.Stat("/usr/local/etc/smb.conf"); err == nil {
 			return "/usr/local/etc/smb.conf"
 		}
 		// Default macOS Homebrew Intel path

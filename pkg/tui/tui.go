@@ -7,55 +7,64 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
+func init() {
+	// Force TrueColor for consistent friendly palette
+	lipgloss.SetColorProfile(termenv.TrueColor)
+}
+
 var (
-	// Color palette
-	primaryColor   = lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}
-	secondaryColor = lipgloss.AdaptiveColor{Light: "#5A4FCF", Dark: "#7D6FD9"}
-	successColor   = lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"}
-	errorColor     = lipgloss.AdaptiveColor{Light: "#CC0000", Dark: "#FF4444"}
-	warningColor   = lipgloss.AdaptiveColor{Light: "#DD8800", Dark: "#FFAA00"}
-	infoColor      = lipgloss.AdaptiveColor{Light: "#0088CC", Dark: "#00AAFF"}
-	mutedColor     = lipgloss.AdaptiveColor{Light: "#626262", Dark: "#8B8B8B"}
-	borderColor    = lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#9D7EF7"}
-	bgColor        = lipgloss.AdaptiveColor{Light: "#FAFAFA", Dark: "#1A1A1A"}
+	// Color palette - Friendly Refresh
+	// Using a softer, more modern palette
+	primaryColor   = lipgloss.AdaptiveColor{Light: "#6366F1", Dark: "#818CF8"} // Indigo
+	secondaryColor = lipgloss.AdaptiveColor{Light: "#EC4899", Dark: "#F472B6"} // Pink
+	successColor   = lipgloss.AdaptiveColor{Light: "#10B981", Dark: "#34D399"} // Emerald
+	errorColor     = lipgloss.AdaptiveColor{Light: "#EF4444", Dark: "#F87171"} // Red
+	warningColor   = lipgloss.AdaptiveColor{Light: "#F59E0B", Dark: "#FBBF24"} // Amber
+	infoColor      = lipgloss.AdaptiveColor{Light: "#3B82F6", Dark: "#60A5FA"} // Blue
+	mutedColor     = lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"} // Gray
+	borderColor    = lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#374151"} // Gray-200/700
 
 	// Title styles
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(primaryColor).
-			Background(bgColor).
-			Padding(0, 2).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(primaryColor).
+			Padding(1, 4). // More padding for "banner" look
 			MarginTop(1).
 			MarginBottom(1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderColor)
+			Align(lipgloss.Center)
 
 	subtitleStyle = lipgloss.NewStyle().
 			Foreground(secondaryColor).
 			Bold(true).
-			MarginBottom(1)
+			MarginBottom(1).
+			PaddingLeft(1)
 
-	// Menu styles
+	// Menu styles -- Natural Width with Alignment
 	menuStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#333", Dark: "#FFF"}).
+			Foreground(lipgloss.AdaptiveColor{Light: "#4B5563", Dark: "#D1D5DB"}).
 			PaddingLeft(2).
-			MarginLeft(2)
+			PaddingRight(1).
+			MarginLeft(0)
 
 	selectedStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
-			Background(lipgloss.AdaptiveColor{Light: "#F0E6FF", Dark: "#2A1A3F"}).
+			Background(lipgloss.AdaptiveColor{Light: "#EEF2FF", Dark: "#312E81"}).
 			Bold(true).
 			PaddingLeft(1).
 			PaddingRight(1).
-			MarginLeft(1)
+			MarginLeft(0).
+			Border(lipgloss.ThickBorder(), false, false, false, true).
+			BorderForeground(primaryColor)
 
 	menuBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(borderColor).
-			Padding(1, 2).
-			MarginTop(1).
+			Padding(1, 2). // Less aggressive padding
+			MarginTop(0).
 			MarginBottom(1)
 
 	// Help and info styles
@@ -68,41 +77,30 @@ var (
 	helpBoxStyle = lipgloss.NewStyle().
 			Foreground(mutedColor).
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(mutedColor).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#374151"}).
 			Padding(0, 1).
-			MarginTop(1)
+			MarginTop(1).
+			Italic(true)
 
-	// Status message styles
+	// Status message styles - Softer look
 	errorStyle = lipgloss.NewStyle().
 			Foreground(errorColor).
-			Background(lipgloss.AdaptiveColor{Light: "#FFE6E6", Dark: "#3A1A1A"}).
 			Bold(true).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(errorColor)
+			Padding(0, 1)
 
 	successStyle = lipgloss.NewStyle().
 			Foreground(successColor).
-			Background(lipgloss.AdaptiveColor{Light: "#E6FFE6", Dark: "#1A3A1A"}).
 			Bold(true).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(successColor)
+			Padding(0, 1)
 
 	warningStyle = lipgloss.NewStyle().
 			Foreground(warningColor).
-			Background(lipgloss.AdaptiveColor{Light: "#FFF4E6", Dark: "#3A2A1A"}).
 			Bold(true).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(warningColor)
+			Padding(0, 1)
 
 	infoStyle = lipgloss.NewStyle().
 			Foreground(infoColor).
-			Background(lipgloss.AdaptiveColor{Light: "#E6F4FF", Dark: "#1A2A3A"}).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(infoColor)
+			Padding(0, 1)
 )
 
 type screen int
@@ -331,115 +329,38 @@ func (m model) renderMessage() string {
 }
 
 func (m model) viewMainMenu() string {
-	s := titleStyle.Render(" Sambo - Linux Share Management ") + "\n\n"
-
-	menuItems := []string{
+	return m.renderMenuView(" Sambo - Linux Share Management ", []string{
 		"📁 Manage Samba Shares",
 		"🌐 Manage NFS Exports",
 		"💾 Manage Network Mounts",
 		"👤 Manage Users",
 		"🔧 Check & Install Dependencies",
 		"🚪 Exit",
-	}
-
-	menuContent := ""
-	for i, item := range menuItems {
-		cursor := " "
-		if m.cursor == i {
-			cursor = "▶"
-			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
-		} else {
-			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
-		}
-	}
-
-	s += menuBoxStyle.Render(menuContent)
-	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • Q: Quit")
-	s += m.renderMessage()
-
-	return s + "\n"
+	}, false)
 }
 
 func (m model) viewSambaMenu() string {
-	s := titleStyle.Render(" Samba Share Management ") + "\n\n"
-
-	menuItems := []string{
+	return m.renderMenuView(" Samba Share Management ", []string{
 		"📋 List Shares",
 		"➕ Create Share",
 		"✏️  Modify Share",
 		"🗑️  Remove Share",
 		"⬅️  Back to Main Menu",
-	}
-
-	menuContent := ""
-	for i, item := range menuItems {
-		cursor := " "
-		if m.cursor == i {
-			cursor = "▶"
-			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
-		} else {
-			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
-		}
-	}
-
-	s += menuBoxStyle.Render(menuContent)
-	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
-	s += m.renderMessage()
-
-	if m.message != "" {
-		s += "\n\n"
-		if m.messageType == "error" {
-			s += errorStyle.Render("✗ " + m.message)
-		} else if m.messageType == "success" {
-			s += successStyle.Render("✓ " + m.message)
-		}
-	}
-
-	return s + "\n"
+	}, true)
 }
 
 func (m model) viewNFSMenu() string {
-	s := titleStyle.Render(" NFS Export Management ") + "\n\n"
-
-	menuItems := []string{
+	return m.renderMenuView(" NFS Export Management ", []string{
 		"📋 List Exports",
 		"➕ Create Export",
 		"✏️  Modify Export",
 		"🗑️  Remove Export",
 		"⬅️  Back to Main Menu",
-	}
-
-	menuContent := ""
-	for i, item := range menuItems {
-		cursor := " "
-		if m.cursor == i {
-			cursor = "▶"
-			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
-		} else {
-			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
-		}
-	}
-
-	s += menuBoxStyle.Render(menuContent)
-	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
-	s += m.renderMessage()
-
-	if m.message != "" {
-		s += "\n\n"
-		if m.messageType == "error" {
-			s += errorStyle.Render("✗ " + m.message)
-		} else if m.messageType == "success" {
-			s += successStyle.Render("✓ " + m.message)
-		}
-	}
-
-	return s + "\n"
+	}, true)
 }
 
 func (m model) viewMountMenu() string {
-	s := titleStyle.Render(" Network Mount Management ") + "\n\n"
-
-	menuItems := []string{
+	return m.renderMenuView(" Network Mount Management ", []string{
 		"📋 List Mounts",
 		"💾 Mount CIFS/SMB Share",
 		"🌐 Mount NFS Share",
@@ -447,48 +368,25 @@ func (m model) viewMountMenu() string {
 		"⏏️  Unmount Share",
 		"🔍 Discover NFS Servers",
 		"⬅️  Back to Main Menu",
-	}
-
-	menuContent := ""
-	for i, item := range menuItems {
-		cursor := " "
-		if m.cursor == i {
-			cursor = "▶"
-			menuContent += selectedStyle.Render(cursor+" "+item) + "\n"
-		} else {
-			menuContent += menuStyle.Render(cursor+" "+item) + "\n"
-		}
-	}
-
-	s += menuBoxStyle.Render(menuContent)
-	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
-	s += m.renderMessage()
-
-	if m.message != "" {
-		s += "\n\n"
-		if m.messageType == "error" {
-			s += errorStyle.Render("✗ " + m.message)
-		} else if m.messageType == "success" {
-			s += successStyle.Render("✓ " + m.message)
-		}
-	}
-
-	return s + "\n"
+	}, true)
 }
 
 func (m model) viewUserMenu() string {
-	s := titleStyle.Render(" User Management ") + "\n\n"
-
-	menuItems := []string{
+	return m.renderMenuView(" User Management ", []string{
 		"📋 List Users",
 		"➕ Add User",
 		"🔑 Change Password",
 		"🗑️  Remove User",
 		"⬅️  Back to Main Menu",
-	}
+	}, true)
+}
+
+// renderMenuView renders a standard menu with title, items, cursor, and optional back-nav help text
+func (m model) renderMenuView(title string, items []string, hasBack bool) string {
+	s := titleStyle.Render(title) + "\n\n"
 
 	menuContent := ""
-	for i, item := range menuItems {
+	for i, item := range items {
 		cursor := " "
 		if m.cursor == i {
 			cursor = "▶"
@@ -499,17 +397,13 @@ func (m model) viewUserMenu() string {
 	}
 
 	s += menuBoxStyle.Render(menuContent)
-	s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
-	s += m.renderMessage()
 
-	if m.message != "" {
-		s += "\n\n"
-		if m.messageType == "error" {
-			s += errorStyle.Render("✗ " + m.message)
-		} else if m.messageType == "success" {
-			s += successStyle.Render("✓ " + m.message)
-		}
+	if hasBack {
+		s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • ESC: Back • Q: Main Menu")
+	} else {
+		s += "\n" + helpBoxStyle.Render("↑/↓ or j/k: Navigate • Enter: Select • Q: Quit")
 	}
+	s += m.renderMessage()
 
 	return s + "\n"
 }
