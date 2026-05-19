@@ -16,7 +16,7 @@ dist/
 
 # Output of the go coverage tool
 *.out
-
+.claude
 # Go workspace file
 go.work
 
