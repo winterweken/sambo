@@ -63,7 +63,7 @@ func SambaConfigPath() string {
 func SambaConfigDir() string {
 	if IsMacOS() {
 		// Check for Apple Silicon Homebrew first
-		if _, err := exec.LookPath("/opt/homebrew/bin/brew"); err == nil {
+		if _, err := os.Stat("/opt/homebrew/bin/brew"); err == nil {
 			return "/opt/homebrew/etc"
 		}
 		return "/usr/local/etc"

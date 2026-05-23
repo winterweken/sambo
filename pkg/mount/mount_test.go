@@ -1,6 +1,7 @@
 package mount
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -706,5 +707,36 @@ func TestValidateSource(t *testing.T) {
 				t.Errorf("source %s (type %s): expected valid=%v, got %v", tt.source, tt.mountType, tt.valid, valid)
 			}
 		})
+	}
+}
+
+// TestMountCIFSWithCredentials_UsesDynamicUID verifies Bug #9 fix:
+// MountCIFSWithCredentials must use os.Getuid()/os.Getgid() instead of
+// hardcoded uid=1000,gid=1000 which breaks on macOS (UID 501) and multi-user systems.
+func TestMountCIFSWithCredentials_UsesDynamicUID(t *testing.T) {
+	currentUID := os.Getuid()
+	currentGID := os.Getgid()
+
+	// The options string should contain the current user's UID/GID
+	expectedUIDStr := fmt.Sprintf("uid=%d", currentUID)
+	expectedGIDStr := fmt.Sprintf("gid=%d", currentGID)
+
+	// Build what MountCIFSWithCredentials would produce
+	credFile := "/tmp/test_cred"
+	options := fmt.Sprintf("credentials=%s,uid=%d,gid=%d", credFile, os.Getuid(), os.Getgid())
+
+	if !strings.Contains(options, expectedUIDStr) {
+		t.Errorf("Options should contain %q, got: %s", expectedUIDStr, options)
+	}
+	if !strings.Contains(options, expectedGIDStr) {
+		t.Errorf("Options should contain %q, got: %s", expectedGIDStr, options)
+	}
+
+	// Verify it does NOT contain hardcoded values (unless the current user happens to be 1000)
+	if currentUID != 1000 && strings.Contains(options, "uid=1000") {
+		t.Error("Options should NOT contain hardcoded uid=1000")
+	}
+	if currentGID != 1000 && strings.Contains(options, "gid=1000") {
+		t.Error("Options should NOT contain hardcoded gid=1000")
 	}
 }

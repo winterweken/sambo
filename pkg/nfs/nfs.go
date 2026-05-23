@@ -12,14 +12,19 @@ import (
 	"sambo/pkg/validate"
 )
 
+var exportsPathOverride string
+
 // getExportsPath returns the path to the NFS exports file
 func getExportsPath() string {
+	if exportsPathOverride != "" {
+		return exportsPathOverride
+	}
 	return platform.NFSExportsPath()
 }
 
 // getExportsBackupPath returns the path to the NFS exports backup file
 func getExportsBackupPath() string {
-	return platform.NFSExportsPath() + ".backup"
+	return getExportsPath() + ".backup"
 }
 
 // CheckInstalled verifies that NFS server is installed and configured
@@ -304,28 +309,92 @@ func Remove(path string) error {
 	return reloadNFS()
 }
 
-// Modify updates an existing export
+// Modify updates an existing export in a single atomic read-modify-write cycle
 func Modify(path string, updates map[string]interface{}) error {
-	// Get current export
+	// 1. Get current export to verify it exists and retrieve current values
 	export, err := Get(path)
 	if err != nil {
 		return err
 	}
 
-	// Apply updates
+	// 2. Apply updates and validate if clients are changed
 	if clients, ok := updates["clients"].(string); ok {
+		if err := validate.NFSClients(clients); err != nil {
+			return fmt.Errorf("invalid clients: %w", err)
+		}
 		export.Clients = clients
 	}
 	if options, ok := updates["options"].(string); ok {
 		export.Options = options
 	}
 
-	// Remove old export and create new one
-	if err := Remove(path); err != nil {
+	// 3. Backup config first
+	if err := backupConfig(); err != nil {
 		return err
 	}
 
-	return Create(*export)
+	exportsPath := getExportsPath()
+
+	// 4. Read entire exports config
+	content, err := os.ReadFile(exportsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read exports: %w", err)
+	}
+
+	// 5. Replace the target export line in-place
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	modified := false
+	newExportLine := fmt.Sprintf("%s %s(%s)", export.Path, export.Clients, export.Options)
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			newLines = append(newLines, line)
+			continue
+		}
+
+		parsed := parseExportLine(trimmed)
+		if parsed != nil && parsed.Path == path {
+			newLines = append(newLines, newExportLine)
+			modified = true
+			continue
+		}
+
+		newLines = append(newLines, line)
+	}
+
+	if !modified {
+		newLines = append(newLines, newExportLine)
+	}
+
+	// 6. Write to temp file first for atomic rename
+	tmpFile := exportsPath + ".tmp"
+	newContent := strings.Join(newLines, "\n")
+	if !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+
+	if err := os.WriteFile(tmpFile, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to write temp exports: %w", err)
+	}
+
+	// 7. Atomic rename
+	if err := os.Rename(tmpFile, exportsPath); err != nil {
+		os.Remove(tmpFile)
+		restoreConfig()
+		return fmt.Errorf("failed to apply exports config: %w", err)
+	}
+
+	// 8. Single reload with rollback protection
+	if err := reloadNFS(); err != nil {
+		restoreConfig()
+		reloadNFS()
+		return fmt.Errorf("failed to reload NFS: %w", err)
+	}
+
+	return nil
 }
 
 // Helper functions
@@ -408,6 +477,9 @@ func restoreConfig() error {
 }
 
 func reloadNFS() error {
+	if exportsPathOverride != "" {
+		return nil
+	}
 	if platform.IsMacOS() {
 		// macOS: use nfsd update to reload exports
 		cmd := exec.Command("nfsd", "update")

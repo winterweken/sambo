@@ -195,6 +195,17 @@ func parseConfigContent(content string) []Share {
 				}
 			case "fruit:time machine":
 				currentShare.TimeMachine = strings.ToLower(value) == "yes"
+				if currentShare.TimeMachine {
+					currentShare.ShareType = ShareTypeTimeMachine
+				}
+			case "store dos attributes":
+				if strings.ToLower(value) == "yes" {
+					currentShare.ShareType = ShareTypeUnifiProtect
+				}
+			case "min receivefile size":
+				if value == "16384" {
+					currentShare.ShareType = ShareTypeMedia
+				}
 			}
 		}
 	}
@@ -721,5 +732,215 @@ func TestShareModification(t *testing.T) {
 	}
 	if len(original.ValidUsers) != 2 {
 		t.Errorf("ValidUsers should have 2 entries, got %d", len(original.ValidUsers))
+	}
+}
+
+// TestHasVFSObjects_OnlyChecksGlobalSection verifies Bug #5 fix:
+// VFS objects check must only match in the [global] section, not share sections.
+func TestHasVFSObjects_OnlyChecksGlobalSection(t *testing.T) {
+	tests := []struct {
+		name          string
+		config        string
+		wantVFSInGlobal bool
+	}{
+		{
+			name: "vfs objects in global section",
+			config: `[global]
+   workgroup = WORKGROUP
+   vfs objects = catia fruit streams_xattr
+
+[share1]
+   path = /data
+`,
+			wantVFSInGlobal: true,
+		},
+		{
+			name: "vfs objects only in share section, not in global",
+			config: `[global]
+   workgroup = WORKGROUP
+
+[timemachine]
+   path = /data
+   vfs objects = catia fruit streams_xattr
+`,
+			wantVFSInGlobal: false,
+		},
+		{
+			name: "vfs objects in both sections",
+			config: `[global]
+   workgroup = WORKGROUP
+   vfs objects = catia fruit streams_xattr
+
+[timemachine]
+   path = /data
+   vfs objects = catia fruit streams_xattr
+`,
+			wantVFSInGlobal: true,
+		},
+		{
+			name: "no vfs objects anywhere",
+			config: `[global]
+   workgroup = WORKGROUP
+
+[share1]
+   path = /data
+`,
+			wantVFSInGlobal: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := strings.Split(tt.config, "\n")
+			hasVFSObjects := false
+			inGlobal := false
+			for _, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "[global]" {
+					inGlobal = true
+					continue
+				}
+				if strings.HasPrefix(trimmed, "[") {
+					inGlobal = false
+				}
+				if inGlobal && strings.Contains(strings.ToLower(trimmed), "vfs objects") {
+					hasVFSObjects = true
+					break
+				}
+			}
+			if hasVFSObjects != tt.wantVFSInGlobal {
+				t.Errorf("hasVFSObjects = %v, want %v", hasVFSObjects, tt.wantVFSInGlobal)
+			}
+		})
+	}
+}
+
+// TestGetEffectiveShareType_BackwardCompat verifies Bug #7 fix:
+// GetEffectiveShareType must return ShareTypeTimeMachine for both
+// share.TimeMachine == true AND share.ShareType == ShareTypeTimeMachine.
+func TestGetEffectiveShareType_BackwardCompat(t *testing.T) {
+	tests := []struct {
+		name      string
+		share     Share
+		wantType  string
+	}{
+		{
+			name:     "TimeMachine bool true",
+			share:    Share{TimeMachine: true, ShareType: ""},
+			wantType: ShareTypeTimeMachine,
+		},
+		{
+			name:     "ShareType timemachine",
+			share:    Share{TimeMachine: false, ShareType: ShareTypeTimeMachine},
+			wantType: ShareTypeTimeMachine,
+		},
+		{
+			name:     "both true",
+			share:    Share{TimeMachine: true, ShareType: ShareTypeTimeMachine},
+			wantType: ShareTypeTimeMachine,
+		},
+		{
+			name:     "general type",
+			share:    Share{TimeMachine: false, ShareType: ShareTypeGeneral},
+			wantType: ShareTypeGeneral,
+		},
+		{
+			name:     "empty type defaults to general",
+			share:    Share{TimeMachine: false, ShareType: ""},
+			wantType: ShareTypeGeneral,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.share.GetEffectiveShareType()
+			if got != tt.wantType {
+				t.Errorf("GetEffectiveShareType() = %q, want %q", got, tt.wantType)
+			}
+		})
+	}
+}
+
+// TestGetTimeMachineShareNames_IncludesShareType verifies Bug #7 fix:
+// getTimeMachineShareNames must find shares with ShareType == ShareTypeTimeMachine,
+// not just share.TimeMachine == true.
+func TestGetTimeMachineShareNames_IncludesShareType(t *testing.T) {
+	manager, mockFS, _, _, _ := setupManager()
+
+	// Config with a share using ShareType=timemachine style (fruit:time machine = yes parsed)
+	// and a share with no time machine marker
+	confContent := `[global]
+    workgroup = WORKGROUP
+
+[tm-bool]
+    path = /data/tm1
+    fruit:time machine = yes
+
+[tm-type]
+    path = /data/tm2
+    fruit:time machine = yes
+
+[regular]
+    path = /data/regular
+`
+	mockFS.WriteFile(tConfPath, []byte(confContent), 0644)
+
+	names := manager.getTimeMachineShareNames()
+	if len(names) != 2 {
+		t.Errorf("Expected 2 Time Machine shares, got %d: %v", len(names), names)
+	}
+}
+
+// TestRemove_TriggersAvahiForShareType verifies Bug #8 fix:
+// Remove must trigger Avahi cleanup for shares with ShareType == ShareTypeTimeMachine.
+func TestRemove_TriggersAvahiForShareType(t *testing.T) {
+	manager, mockFS, _, _, mockAvahi := setupManager()
+
+	// Config with a Time Machine share using the fruit:time machine = yes marker
+	confContent := `[global]
+    workgroup = WORKGROUP
+
+[tm-backup]
+    path = /data/tm
+    fruit:time machine = yes
+`
+	mockFS.WriteFile(tConfPath, []byte(confContent), 0644)
+
+	err := manager.Remove("tm-backup")
+	if err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	// Verify Avahi was called to remove the Time Machine share
+	if len(mockAvahi.RemoveTimeMachineShareCalls) == 0 {
+		t.Error("Expected Avahi RemoveTimeMachineShare to be called for Time Machine share")
+	}
+}
+
+// TestCreate_StatError_HandlesPermissionDenied verifies Bug #16 fix:
+// Create must distinguish between "not exist" and other Stat errors (e.g. permission denied).
+func TestCreate_StatError_HandlesPermissionDenied(t *testing.T) {
+	manager, mockFS, _, _, _ := setupManager()
+
+	// Setup initial config
+	initialConfig := `[global]
+    workgroup = WORKGROUP
+`
+	mockFS.WriteFile(tConfPath, []byte(initialConfig), 0644)
+
+	// Don't create the path in mock FS → Stat will return os.ErrNotExist
+	newShare := Share{
+		Name:       "testshare",
+		Path:       "/nonexistent/path",
+		ReadOnly:   false,
+		Browseable: true,
+	}
+
+	err := manager.Create(newShare)
+	if err == nil {
+		t.Fatal("Expected error when path does not exist, got nil")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("Expected 'does not exist' error, got: %v", err)
 	}
 }

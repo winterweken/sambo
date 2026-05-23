@@ -152,12 +152,14 @@ func sambaModify(args []string) error {
 	if *comment != "" {
 		updates["comment"] = *comment
 	}
-	if fs.Lookup("readonly").Value.String() != "false" {
-		updates["readonly"] = *readOnly
-	}
-	if fs.Lookup("browseable").Value.String() != "true" {
-		updates["browseable"] = *browseable
-	}
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "readonly":
+			updates["readonly"] = *readOnly
+		case "browseable":
+			updates["browseable"] = *browseable
+		}
+	})
 	if *validUsers != "" {
 		updates["validusers"] = parseCSV(*validUsers)
 	}

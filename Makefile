@@ -1,12 +1,12 @@
 # Makefile for Sambo - Share Management CLI for Linux and macOS
 
 BINARY_NAME=sambo
-VERSION=1.8.0
+VERSION=1.8.1
 BUILD_DIR=build
 INSTALL_PATH=/usr/local/bin
 
 # Build flags
-LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
+LDFLAGS=-ldflags "-s -w -X sambo/cmd.Version=$(VERSION)"
 
 .PHONY: all build build-all release package-macos clean install uninstall test test-cover test-race fmt lint help
 

@@ -308,3 +308,148 @@ func TestFixPermissions(t *testing.T) {
 		t.Error("Expected Chmod(/data/tm, 0700)")
 	}
 }
+
+func TestModifyPreservesShareTypeConfig(t *testing.T) {
+	// Mock user.GetSystemUID
+	origGetUID := user.GetSystemUID
+	defer func() { user.GetSystemUID = origGetUID }()
+	user.GetSystemUID = func(name string) (int, error) {
+		return 1000, nil
+	}
+
+	tests := []struct {
+		name          string
+		shareType     string
+		timemachine   bool
+		requiredKeys  []string
+		forbiddenKeys []string
+	}{
+		{
+			name:      "timemachine via type",
+			shareType: ShareTypeTimeMachine,
+			requiredKeys: []string{
+				"fruit:time machine = yes",
+				"vfs objects = catia fruit streams_xattr",
+			},
+		},
+		{
+			name:      "unifi-protect",
+			shareType: ShareTypeUnifiProtect,
+			requiredKeys: []string{
+				"store dos attributes = yes",
+				"create mask = 0660",
+			},
+			forbiddenKeys: []string{
+				"fruit:time machine",
+			},
+		},
+		{
+			name:      "media",
+			shareType: ShareTypeMedia,
+			requiredKeys: []string{
+				"min receivefile size = 16384",
+				"use sendfile = yes",
+			},
+			forbiddenKeys: []string{
+				"store dos attributes",
+			},
+		},
+		{
+			name:      "general",
+			shareType: ShareTypeGeneral,
+			forbiddenKeys: []string{
+				"store dos attributes",
+				"min receivefile size",
+				"fruit:time machine",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager, mockFS, _, _, _ := setupManager()
+			initialConfig := `[global]
+    workgroup = WORKGROUP
+`
+			mockFS.WriteFile(tConfPath, []byte(initialConfig), 0644)
+			mockFS.MkdirAll("/data/share", 0755)
+
+			share := Share{
+				Name:       "myshare",
+				Path:       "/data/share",
+				ShareType:  tt.shareType,
+				Browseable: true,
+				ValidUsers: []string{"alice"},
+			}
+
+			// Create the share
+			err := manager.Create(share)
+			if err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+
+			// Verify initial config has required keys
+			content, _ := mockFS.ReadFile(tConfPath)
+			contentStr := string(content)
+			for _, k := range tt.requiredKeys {
+				if !strings.Contains(contentStr, k) {
+					t.Errorf("Initial config missing required key %q", k)
+				}
+			}
+
+			// List and verify GetEffectiveShareType returns correct type
+			shares, err := manager.List()
+			if err != nil {
+				t.Fatalf("List() error = %v", err)
+			}
+			if len(shares) != 1 {
+				t.Fatalf("Expected 1 share, got %d", len(shares))
+			}
+			if shares[0].GetEffectiveShareType() != tt.shareType {
+				t.Errorf("Expected effective share type %q, got %q", tt.shareType, shares[0].GetEffectiveShareType())
+			}
+
+			// Modify a general property (comment)
+			updates := map[string]interface{}{
+				"comment": "My updated comment",
+			}
+			err = manager.Modify("myshare", updates)
+			if err != nil {
+				t.Fatalf("Modify() error = %v", err)
+			}
+
+			// Verify updated config has the updated comment
+			updatedContent, _ := mockFS.ReadFile(tConfPath)
+			updatedStr := string(updatedContent)
+			if !strings.Contains(updatedStr, "comment = My updated comment") {
+				t.Errorf("Updated config missing comment")
+			}
+
+			// Verify updated config STILL has required keys
+			for _, k := range tt.requiredKeys {
+				if !strings.Contains(updatedStr, k) {
+					t.Errorf("Updated config lost required key %q. Content:\n%s", k, updatedStr)
+				}
+			}
+
+			// Verify updated config does NOT have forbidden keys
+			for _, k := range tt.forbiddenKeys {
+				if strings.Contains(updatedStr, k) {
+					t.Errorf("Updated config has forbidden key %q. Content:\n%s", k, updatedStr)
+				}
+			}
+
+			// List again and check GetEffectiveShareType
+			shares2, err := manager.List()
+			if err != nil {
+				t.Fatalf("List() error = %v", err)
+			}
+			if len(shares2) != 1 {
+				t.Fatalf("Expected 1 share, got %d", len(shares2))
+			}
+			if shares2[0].GetEffectiveShareType() != tt.shareType {
+				t.Errorf("After Modify, expected effective share type %q, got %q", tt.shareType, shares2[0].GetEffectiveShareType())
+			}
+		})
+	}
+}

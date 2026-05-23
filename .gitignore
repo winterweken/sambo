@@ -35,3 +35,7 @@ Thumbs.db
 # Backup files
 *.backup
 *.bak
+sambo.code-workspace
+
+# Agent telemetry
+.agents/

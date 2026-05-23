@@ -190,7 +190,7 @@ func NFSClients(clients string) error {
 
 	// Basic validation - allow IPs, CIDRs, hostnames
 	// This is a simple check; NFS will validate more thoroughly
-	if strings.ContainsAny(clients, "[]{}()\\|;'\"") {
+	if strings.ContainsAny(clients, "[]{}()\\|;'\"`$&<>\n\r") {
 		return errors.New("clients specification contains invalid characters")
 	}
 

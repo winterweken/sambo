@@ -1,6 +1,7 @@
 package nfs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -514,5 +515,70 @@ func TestExportWithComplexOptions(t *testing.T) {
 				t.Errorf("expected options %s, got %s", tt.options, export.Options)
 			}
 		})
+	}
+}
+
+func TestNFSModifyAtomic(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpExports := filepath.Join(tmpDir, "exports")
+
+	exportsContent := `# NFS exports file
+/home 192.168.1.0/24(rw,sync)
+/data *(ro,sync)
+/backup 10.0.0.0/8(rw)
+`
+	if err := os.WriteFile(tmpExports, []byte(exportsContent), 0644); err != nil {
+		t.Fatalf("failed to create temp exports: %v", err)
+	}
+
+	// Override path to target our temp file
+	exportsPathOverride = tmpExports
+	defer func() { exportsPathOverride = "" }()
+
+	// Modify one of the exports
+	updates := map[string]interface{}{
+		"clients": "10.10.10.0/24",
+		"options": "rw,async",
+	}
+
+	// Verify we can access path /data (must exist on host, but for safety in tests we can use a directory we know exists like tmpDir)
+	// Let's modify "/home" or "/data". But wait, the Path in the export must exist on the local filesystem.
+	// Since /data might not exist on the runner, let's use tmpDir as the path!
+	// We'll write an export line using tmpDir.
+	testExportPath := tmpDir
+	initialContent := fmt.Sprintf(`# NFS exports file
+%s 192.168.1.0/24(rw,sync)
+/backup 10.0.0.0/8(rw)
+`, testExportPath)
+
+	if err := os.WriteFile(tmpExports, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("failed to write initial exports: %v", err)
+	}
+
+	// Modify our export
+	err := Modify(testExportPath, updates)
+	if err != nil {
+		t.Fatalf("Modify() failed: %v", err)
+	}
+
+	// Read and verify the exports file content
+	content, err := os.ReadFile(tmpExports)
+	if err != nil {
+		t.Fatalf("failed to read exports file: %v", err)
+	}
+	contentStr := string(content)
+
+	// Verify our export is updated
+	expectedLine := fmt.Sprintf("%s 10.10.10.0/24(rw,async)", testExportPath)
+	if !strings.Contains(contentStr, expectedLine) {
+		t.Errorf("Expected updated export line %q in config. Content:\n%s", expectedLine, contentStr)
+	}
+
+	// Verify other exports and comments are intact
+	if !strings.Contains(contentStr, "/backup 10.0.0.0/8(rw)") {
+		t.Error("Expected backup export to remain unchanged")
+	}
+	if !strings.Contains(contentStr, "# NFS exports file") {
+		t.Error("Expected comment to be preserved")
 	}
 }

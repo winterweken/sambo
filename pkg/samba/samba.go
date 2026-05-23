@@ -263,8 +263,19 @@ func (m *Manager) List() ([]Share, error) {
 				}
 			case "fruit:time machine":
 				currentShare.TimeMachine = strings.ToLower(value) == "yes"
+				if currentShare.TimeMachine {
+					currentShare.ShareType = ShareTypeTimeMachine
+				}
 			case "fruit:time machine max size":
 				currentShare.TimeMachineMaxSize = value
+			case "store dos attributes":
+				if strings.ToLower(value) == "yes" {
+					currentShare.ShareType = ShareTypeUnifiProtect
+				}
+			case "min receivefile size":
+				if value == "16384" {
+					currentShare.ShareType = ShareTypeMedia
+				}
 			}
 		}
 	}
@@ -321,8 +332,11 @@ func (m *Manager) Create(share Share) error {
 	}
 
 	// Verify path exists
-	if _, err := m.fs.Stat(share.Path); os.IsNotExist(err) {
-		return fmt.Errorf("path '%s' does not exist", share.Path)
+	if _, err := m.fs.Stat(share.Path); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("path '%s' does not exist", share.Path)
+		}
+		return fmt.Errorf("cannot access path '%s': %w", share.Path, err)
 	}
 
 	// Determine effective share type (backward compat: TimeMachine bool overrides)
@@ -494,7 +508,7 @@ func (m *Manager) getTimeMachineShareNames() []string {
 
 	var names []string
 	for _, share := range shares {
-		if share.TimeMachine {
+		if share.TimeMachine || share.GetEffectiveShareType() == ShareTypeTimeMachine {
 			names = append(names, share.Name)
 		}
 	}
@@ -579,7 +593,7 @@ func (m *Manager) Remove(name string) error {
 	}
 
 	// Update Avahi service if this was a Time Machine share
-	if foundShare.TimeMachine {
+	if foundShare.TimeMachine || foundShare.GetEffectiveShareType() == ShareTypeTimeMachine {
 		remainingTMShares := m.getTimeMachineShareNames()
 		if err := m.avahi.RemoveTimeMachineShare(name, remainingTMShares); err != nil {
 			// Log warning but don't fail - Avahi is optional
@@ -616,9 +630,22 @@ func (m *Manager) Modify(name string, updates map[string]interface{}) error {
 	}
 	if timeMachine, ok := updates["timemachine"].(bool); ok {
 		share.TimeMachine = timeMachine
+		if timeMachine {
+			share.ShareType = ShareTypeTimeMachine
+		} else if share.ShareType == ShareTypeTimeMachine {
+			share.ShareType = ShareTypeGeneral
+		}
 	}
 	if timeMachineMaxSize, ok := updates["timemachinemaxsize"].(string); ok {
 		share.TimeMachineMaxSize = timeMachineMaxSize
+	}
+	if shareType, ok := updates["sharetype"].(string); ok {
+		share.ShareType = shareType
+		if shareType == ShareTypeTimeMachine {
+			share.TimeMachine = true
+		} else {
+			share.TimeMachine = false
+		}
 	}
 
 	// Backup config first
@@ -875,7 +902,24 @@ func (m *Manager) EnsureTimeMachineGlobalConfig() error {
 	// Check if Time Machine global settings already exist
 	hasMinProtocol := strings.Contains(configStr, "min protocol")
 	hasEASupport := strings.Contains(configStr, "ea support")
-	hasVFSObjects := strings.Contains(configStr, "vfs objects") && strings.Contains(configStr, "[global]")
+
+	// Check for VFS objects only in the [global] section, not in share sections
+	hasVFSObjects := false
+	inGlobal := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "[global]" {
+			inGlobal = true
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") {
+			inGlobal = false
+		}
+		if inGlobal && strings.Contains(strings.ToLower(trimmed), "vfs objects") {
+			hasVFSObjects = true
+			break
+		}
+	}
 
 	// If all settings exist, no need to modify
 	if hasMinProtocol && hasEASupport && hasVFSObjects {
@@ -889,7 +933,7 @@ func (m *Manager) EnsureTimeMachineGlobalConfig() error {
 
 	// Find [global] section and add missing settings
 	var newLines []string
-	inGlobal := false
+	inGlobal = false
 	globalSettingsAdded := false
 
 	for i, line := range lines {

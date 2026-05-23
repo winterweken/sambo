@@ -94,10 +94,18 @@ func mountCIFS(args []string) error {
 		return fmt.Errorf("source and mountpoint are required")
 	}
 
-	// Security warning for password flag
-	if *password != "" {
+	// Use secure credentials path when both username and password are provided
+	if *username != "" && *password != "" {
 		fmt.Println("⚠️  WARNING: Using -password on the command line is insecure. Your password may be visible in process listings.")
 		fmt.Println("   Consider using interactive mode or the TUI instead.")
+		if err := mount.MountCIFSWithCredentials(*source, *mountPoint, *username, *password, *persistent); err != nil {
+			return fmt.Errorf("failed to mount CIFS share: %w", err)
+		}
+		fmt.Printf("CIFS share '%s' mounted at '%s'\n", *source, *mountPoint)
+		if *persistent {
+			fmt.Println("Added to /etc/fstab for automatic mounting at boot")
+		}
+		return nil
 	}
 
 	// Build options string

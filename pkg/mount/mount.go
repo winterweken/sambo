@@ -382,7 +382,7 @@ func MountCIFSWithCredentials(source, mountPoint, username, password string, per
 	}
 
 	// Build options with credentials file reference
-	options := fmt.Sprintf("credentials=%s,uid=1000,gid=1000", credFile)
+	options := fmt.Sprintf("credentials=%s,uid=%d,gid=%d", credFile, os.Getuid(), os.Getgid())
 
 	return mountShare(source, mountPoint, "cifs", options, persistent)
 }

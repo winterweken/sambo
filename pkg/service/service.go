@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -138,7 +139,7 @@ func checkNFSMacOS() Status {
 	}
 
 	// Check if exports file exists and has content
-	if _, err := exec.LookPath("/etc/exports"); err != nil {
+	if _, err := os.Stat("/etc/exports"); err != nil {
 		return StatusNotInstalled
 	}
 
