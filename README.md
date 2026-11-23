@@ -2,6 +2,8 @@
 
 A command-line tool for managing Samba (SMB/CIFS) and NFS shares on Linux and macOS, featuring both a traditional CLI and an interactive terminal UI (TUI).
 
+![The sambo TUI showing the Shares tab](docs/tui.png)
+
 ## Features
 
 - **Samba Share Management**: Create, list, modify, and remove Samba shares with share type presets
@@ -13,6 +15,7 @@ A command-line tool for managing Samba (SMB/CIFS) and NFS shares on Linux and ma
 - **CLI Interface**: Scriptable command structure for automation and headless use
 - **Share Type Presets**: Built-in configurations for Time Machine, Ubiquiti Protect, and media servers
 - **Configuration Safety**: Automatic backups, validation via `testparm`, and atomic file operations
+- **In-Place Edits**: Modifying a share or export changes only the settings you asked for; anything else in `smb.conf` or `/etc/exports`, including settings sambo does not manage, is left as it was
 - **Cross-Platform**: Native support for both Linux and macOS with platform-aware service management
 
 ## Requirements
@@ -212,8 +215,9 @@ sudo sambo nfs create -path /mnt/data -clients 192.168.1.0/24
 sudo sambo nfs create -path /mnt/public -clients "*" -readonly
 sudo sambo nfs create -path /mnt/secure -clients 192.168.1.100 -no-root-squash
 
-# Modify
+# Modify (only the flags you pass change; each client keeps its other options)
 sudo sambo nfs modify -path /mnt/backup -clients 192.168.1.50 -readonly
+sudo sambo nfs modify -path /mnt/backup -readonly=false
 
 # Remove
 sudo sambo nfs remove -path /mnt/backup
@@ -372,6 +376,7 @@ sambo/
 │   ├── system/             # FileSystem/CommandExecutor/Platform traits, packages
 │   ├── platform.rs         # OS detection and path resolution
 │   └── validate.rs         # Input validation (paths, names, sources)
+├── docs/                   # README images
 ├── scripts/                # Install scripts, macOS client setup
 └── Makefile                # Build, test, release targets
 ```
