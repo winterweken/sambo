@@ -9,7 +9,7 @@ A command-line tool for managing Samba (SMB/CIFS) and NFS shares on Linux and ma
 - **Network Mount Management**: Mount and manage remote CIFS/SMB and NFS shares
 - **NFS Server Discovery**: Scan your local network for available NFS servers
 - **User Management**: Add, remove, and manage Samba users with password control
-- **Interactive TUI**: Beautiful text-based interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+- **Interactive TUI**: Tabbed terminal interface built with [Ratatui](https://ratatui.rs)
 - **CLI Interface**: Scriptable command structure for automation and headless use
 - **Share Type Presets**: Built-in configurations for Time Machine, Ubiquiti Protect, and media servers
 - **Configuration Safety**: Automatic backups, validation via `testparm`, and atomic file operations
@@ -95,6 +95,8 @@ make build
 sudo make install
 ```
 
+Building needs a [Rust toolchain](https://rustup.rs) (stable).
+
 ## Usage
 
 All commands require root privileges:
@@ -109,9 +111,23 @@ sudo sambo <command> [subcommand] [options]
 sudo sambo tui
 ```
 
-The TUI provides arrow-key navigation, interactive forms, color-coded feedback, and dependency checking — the easiest way to manage shares.
+The TUI shows shares, exports, mounts, users, and system dependencies as tabs, each a table you act on directly. Changes run in the background, so the interface never freezes while Samba reloads or the network is scanned.
 
-**Navigation:** `↑/↓` or `j/k` to move, `Enter` to select, `ESC` to go back, `Q` to quit.
+| Keys | Action |
+|------|--------|
+| `Tab` / `←` `→` / `1`–`5` | Switch tab |
+| `↑` `↓` / `j` `k`, `Home` / `End` | Move the selection |
+| `a`, `e` / `Enter`, `d` | Add, edit, remove (Shares, Exports) |
+| `c`, `n`, `u`, `p`, `s` | Mount CIFS, mount NFS, unmount, toggle persistent, scan for NFS servers (Mounts) |
+| `a`, `p`, `d` | Add user, change password, remove (Users) |
+| `i` | Install the selected component (System) |
+| `r` | Reload the current tab |
+| `?` | Help |
+| `q` / `Ctrl+C` | Quit |
+
+In forms, `Tab` and `↑`/`↓` move between fields, `Space` toggles a checkbox, `←`/`→` change a choice, `Ctrl+S` submits, and `Esc` cancels. Removals ask for confirmation first.
+
+Colours follow your terminal's palette; set `NO_COLOR=1` to turn them off.
 
 ### General Commands
 
@@ -327,50 +343,51 @@ sudo umount -f /mnt/stuck        # Force unmount
 
 ```
 sambo/
-├── main.go                  # Entry point, version injection
-├── cmd/                     # CLI command handlers
-│   ├── root.go             # Command router, privilege checks
-│   ├── samba.go            # Samba share commands
-│   ├── nfs.go              # NFS export commands
-│   ├── mount.go            # Mount/unmount/scan commands
-│   └── user.go             # User management commands
-├── pkg/
-│   ├── samba/              # Samba Manager (DI pattern)
-│   │   ├── samba.go        # Manager, Create, Modify, Remove, List
-│   │   └── *_test.go       # Unit tests with mocked dependencies
-│   ├── nfs/                # NFS export management
-│   │   ├── nfs.go          # CRUD for /etc/exports
-│   │   └── options.go      # Shared NFS option builder
-│   ├── mount/              # Client-side mounting
-│   │   ├── mount.go        # Mount/unmount, fstab management
-│   │   └── discover.go     # NFS server discovery (subnet scan)
-│   ├── tui/                # Terminal UI (Bubble Tea)
-│   │   ├── tui.go          # Model-View-Update state machine
-│   │   ├── forms.go        # Form models for create/modify
-│   │   ├── views.go        # List and table rendering
-│   │   ├── select.go       # Selection dialogs
-│   │   └── dependencies.go # Dependency check and install flow
-│   ├── avahi/              # Avahi/Bonjour mDNS service files
-│   ├── platform/           # OS detection and path resolution
-│   ├── service/            # Service status checking and management
-│   ├── system/             # Interfaces: FileSystem, CommandExecutor, Platform
-│   ├── user/               # Samba user management (pdbedit, smbpasswd)
-│   ├── validate/           # Input validation (paths, names, sources)
-│   └── confirm/            # Interactive confirmation prompts
+├── Cargo.toml               # Package manifest; the version lives here
+├── src/
+│   ├── main.rs             # Entry point
+│   ├── cli/                # CLI command handlers
+│   │   ├── mod.rs          # Command router, privilege checks
+│   │   ├── flags.rs        # Flag parsing (-name value, --name=value)
+│   │   ├── samba.rs        # Samba share commands
+│   │   ├── nfs.rs          # NFS export commands
+│   │   ├── mount.rs        # Mount/unmount/scan commands
+│   │   └── user.rs         # User management commands
+│   ├── tui/                # Terminal UI (Ratatui + crossterm)
+│   │   ├── mod.rs          # Terminal setup and event loop
+│   │   ├── app.rs          # State and worker messages
+│   │   ├── app/update.rs   # Reactions to keys and worker responses
+│   │   ├── app/forms.rs    # Forms, confirmations, and the work they request
+│   │   ├── worker.rs       # Runs requests on background threads
+│   │   ├── ui.rs           # Rendering
+│   │   ├── form.rs         # Form widget state
+│   │   ├── input.rs        # Single-line text input
+│   │   └── theme.rs        # Styles (honours NO_COLOR)
+│   ├── samba.rs            # Samba Manager (dependencies injected for tests)
+│   ├── nfs.rs              # NFS export management
+│   ├── mount/              # Client-side mounting and NFS discovery
+│   ├── user.rs             # Samba user management (pdbedit, smbpasswd)
+│   ├── avahi.rs            # Avahi/Bonjour mDNS service files
+│   ├── service.rs          # Service status checks
+│   ├── system/             # FileSystem/CommandExecutor/Platform traits, packages
+│   ├── platform.rs         # OS detection and path resolution
+│   └── validate.rs         # Input validation (paths, names, sources)
 ├── scripts/                # Install scripts, macOS client setup
 └── Makefile                # Build, test, release targets
 ```
+
+Unit tests sit next to the code they cover, in `tests.rs` files under a directory named after the module.
 
 ### Build & Test
 
 ```bash
 make build          # Build binary to ./build/sambo
-make build-all      # Cross-compile for all platforms
-make test           # Run tests
-make test-cover     # Tests with coverage report
-make test-race      # Tests with race detector
-make lint           # Run golangci-lint
-make fmt            # Format code
+make build-linux    # Static Linux binaries for amd64, arm64, arm (needs cross)
+make build-darwin   # macOS binaries for Intel and Apple Silicon
+make build-all      # Both of the above
+make test           # Run tests (cargo test)
+make lint           # Run clippy
+make fmt            # Format code (cargo fmt)
 make install        # Build and install to /usr/local/bin
 make release        # Create release tarballs
 make package-macos  # Create macOS .pkg installers
@@ -379,7 +396,7 @@ make package-macos  # Create macOS .pkg installers
 ## Credits
 
 - **[Samba Team](https://www.samba.org/)** — Core file sharing capabilities
-- **[Charm](https://charm.sh/)** — Bubble Tea, Bubbles, and Lipgloss for the TUI
+- **[Ratatui](https://ratatui.rs)** and **[crossterm](https://github.com/crossterm-rs/crossterm)** — the TUI
 - **Contributors**: Carter (Project Lead), Claude / Gemini (AI Assistants)
 
 ## License
