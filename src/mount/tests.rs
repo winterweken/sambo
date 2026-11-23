@@ -187,11 +187,85 @@ fn a_password_without_a_username_is_still_kept_out_of_the_options() {
 
 #[test]
 fn credentials_files_are_named_after_the_share() {
-    assert_eq!(
-        credentials_file_name("//nas.local/My Media"),
-        "nas.local_My_Media.cred"
+    let name = credentials_file_name("//nas.local/My Media", "/mnt/media");
+    assert!(name.starts_with("nas.local_My_Media-"), "{name}");
+    assert!(name.ends_with(".cred"), "{name}");
+    let name = credentials_file_name("//10.0.0.5/../etc", "/mnt/x");
+    assert!(name.starts_with("10.0.0.5_.._etc-"), "{name}");
+    assert!(!name.contains('/'), "{name}");
+}
+
+#[test]
+fn each_mount_of_a_share_gets_its_own_credentials_file() {
+    let first = credentials_file_name("//nas/media", "/mnt/a");
+    assert_eq!(first, credentials_file_name("//nas/media", "/mnt/a"));
+    assert_ne!(first, credentials_file_name("//nas/media", "/mnt/b"));
+    // Names that differ only in characters the file name replaces stay apart.
+    assert_ne!(
+        credentials_file_name("//nas/a_b", "/mnt/a"),
+        credentials_file_name("//nas/a b", "/mnt/a")
     );
-    assert_eq!(credentials_file_name("//10.0.0.5/../etc"), "10.0.0.5_.._etc.cred");
+}
+
+fn credentials_dir(test: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("sambo-cred-{test}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+#[test]
+fn a_password_moves_into_a_private_credentials_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = credentials_dir("store");
+    let (options, stored) =
+        protect_cifs_password(&dir, "//nas/media", "/mnt/a", "username=ann,password=pw,uid=1000").unwrap();
+    let stored = stored.unwrap();
+    assert_eq!(options, format!("credentials={},uid=1000", stored.path.display()));
+    assert_eq!(
+        std::fs::read_to_string(&stored.path).unwrap(),
+        "username=ann\npassword=pw\n"
+    );
+    assert_eq!(
+        std::fs::metadata(&stored.path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn options_without_a_password_store_nothing() {
+    let dir = credentials_dir("none");
+    let (options, stored) = protect_cifs_password(&dir, "//nas/media", "/mnt/a", "guest,uid=1000").unwrap();
+    assert_eq!(options, "guest,uid=1000");
+    assert!(stored.is_none());
+    assert!(!dir.exists());
+}
+
+#[test]
+fn undoing_stored_credentials_brings_back_the_earlier_ones() {
+    let dir = credentials_dir("undo");
+    let (_, first) =
+        protect_cifs_password(&dir, "//nas/media", "/mnt/a", "username=ann,password=old").unwrap();
+    let path = first.unwrap().path;
+    let (_, second) =
+        protect_cifs_password(&dir, "//nas/media", "/mnt/a", "username=bob,password=new").unwrap();
+    second.unwrap().undo();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "username=ann\npassword=old\n"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn undoing_first_time_credentials_removes_the_file() {
+    let dir = credentials_dir("undo-new");
+    let (_, stored) =
+        protect_cifs_password(&dir, "//nas/media", "/mnt/a", "username=ann,password=pw").unwrap();
+    let stored = stored.unwrap();
+    stored.undo();
+    assert!(!stored.path.exists());
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

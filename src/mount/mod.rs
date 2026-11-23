@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::platform;
 use crate::system::run;
@@ -154,8 +154,10 @@ pub fn split_credentials(options: &str) -> (String, Option<(String, String)>) {
     (rest.join(","), Some((username.to_string(), password.to_string())))
 }
 
-/// A file name for a share's credentials that is safe whatever the source contains.
-pub fn credentials_file_name(source: &str) -> String {
+/// A file name for the credentials of one mount, safe whatever the source
+/// contains. The suffix keeps mounts of the same share at different mount
+/// points, and sources that differ only in replaced characters, apart.
+pub fn credentials_file_name(source: &str, mount_point: &str) -> String {
     let safe = |c: char| {
         if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
             c
@@ -164,7 +166,13 @@ pub fn credentials_file_name(source: &str) -> String {
         }
     };
     let name: String = source.trim_start_matches('/').chars().map(safe).collect();
-    format!("{name}.cred")
+    // FNV-1a: the name must stay the same across builds, which the standard
+    // library's hasher does not promise.
+    let hash = (source.bytes().chain([0]).chain(mount_point.bytes()))
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    format!("{name}-{hash:016x}.cred")
 }
 
 /// The content of a credentials file as mount.cifs expects it.
@@ -177,20 +185,42 @@ pub fn credentials_content(username: &str, password: &str) -> String {
     format!("{user_line}password={password}\n")
 }
 
+/// A credentials file written for a mount, with what it replaced.
+#[derive(Debug)]
+struct StoredCredentials {
+    path: PathBuf,
+    previous: Option<Vec<u8>>,
+}
+
+impl StoredCredentials {
+    /// Puts back what was there before, for when the mount did not succeed.
+    fn undo(&self) {
+        let _ = match &self.previous {
+            Some(previous) => fs::write(&self.path, previous),
+            None => fs::remove_file(&self.path),
+        };
+    }
+}
+
 /// Moves a password given in CIFS options into a root-only credentials file
-/// and returns options that refer to that file instead.
-fn protect_cifs_password(source: &str, options: &str) -> Result<String> {
+/// in `dir` and returns options that refer to that file instead.
+fn protect_cifs_password(
+    dir: &Path,
+    source: &str,
+    mount_point: &str,
+    options: &str,
+) -> Result<(String, Option<StoredCredentials>)> {
     let (rest, Some((username, password))) = split_credentials(options) else {
-        return Ok(options.to_string());
+        return Ok((options.to_string(), None));
     };
-    let dir = Path::new(CREDENTIALS_DIR);
     let failed = |e: std::io::Error| format!("failed to store credentials: {e}");
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)
         .map_err(failed)?;
-    let path = dir.join(credentials_file_name(source));
+    let path = dir.join(credentials_file_name(source, mount_point));
+    let previous = fs::read(&path).ok();
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -204,11 +234,12 @@ fn protect_cifs_password(source: &str, options: &str) -> Result<String> {
     file.write_all(credentials_content(&username, &password).as_bytes())
         .map_err(failed)?;
     let credentials = format!("credentials={}", path.display());
-    Ok(if rest.is_empty() {
+    let options = if rest.is_empty() {
         credentials
     } else {
         format!("{credentials},{rest}")
-    })
+    };
+    Ok((options, Some(StoredCredentials { path, previous })))
 }
 
 pub fn auto_nfs_line(source: &str, mount_point: &str) -> String {
@@ -287,11 +318,13 @@ fn mount_share(
     fs::create_dir_all(mount_point).map_err(|e| format!("failed to create mount point: {e}"))?;
 
     // mount_smbfs on macOS has no credentials-file option.
-    let protected;
+    let (protected, stored);
     let options = if kind == MountType::Cifs && !platform::is_macos() {
-        protected = protect_cifs_password(source, options)?;
+        (protected, stored) =
+            protect_cifs_password(Path::new(CREDENTIALS_DIR), source, mount_point, options)?;
         protected.as_str()
     } else {
+        stored = None;
         options
     };
 
@@ -309,7 +342,13 @@ fn mount_share(
         args.extend(["-o", options]);
     }
     args.extend([source, mount_point]);
-    run(program, &args).map_err(|e| format!("failed to mount: {e}"))?;
+    if let Err(e) = run(program, &args) {
+        // A failed attempt must not leave an earlier mount's credentials replaced.
+        if let Some(stored) = &stored {
+            stored.undo();
+        }
+        return Err(format!("failed to mount: {e}"));
+    }
 
     if persistent {
         if platform::is_macos() {
