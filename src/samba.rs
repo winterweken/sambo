@@ -377,34 +377,41 @@ pub fn update_share_section(content: &str, current: &Share, update: &ShareUpdate
 /// Adds the global settings Time Machine needs to the `[global]` section.
 /// Returns None when nothing has to change.
 pub fn add_time_machine_globals(content: &str) -> Option<String> {
-    let mut missing = Vec::new();
-    if !content.contains("min protocol") {
-        missing.push("   min protocol = SMB2");
-    }
-    if !content.contains("ea support") {
-        missing.push("   ea support = yes");
-    }
-    if !content.contains("vfs objects") {
-        missing.push("   vfs objects = catia fruit streams_xattr");
-    }
+    let mut lines: Vec<&str> = content.split('\n').collect();
+    let global = lines.iter().position(|l| l.trim() == "[global]")?;
+    let next_section = lines[global + 1..]
+        .iter()
+        .position(|l| section_name(l).is_some())
+        .map(|offset| global + 1 + offset);
+
+    // Only [global] counts: a share may set the same parameters for itself.
+    let in_global = &lines[global + 1..next_section.unwrap_or(lines.len())];
+    let missing: Vec<&str> = [
+        ("min protocol", "   min protocol = SMB2"),
+        ("ea support", "   ea support = yes"),
+        ("vfs objects", "   vfs objects = catia fruit streams_xattr"),
+    ]
+    .into_iter()
+    .filter(|(key, _)| {
+        let key = normalize_key(key);
+        !in_global
+            .iter()
+            .any(|line| setting(line).is_some_and(|(k, _)| k == key))
+    })
+    .map(|(_, line)| line)
+    .collect();
     if missing.is_empty() {
         return None;
     }
 
-    let mut lines: Vec<&str> = content.split('\n').collect();
-    let global = lines.iter().position(|l| l.trim() == "[global]")?;
     // Insert just before the next section, or at the end of the file.
-    let insert_at = lines[global + 1..]
-        .iter()
-        .position(|l| section_name(l).is_some())
-        .map(|offset| global + 1 + offset)
-        .unwrap_or_else(|| {
-            if lines.last() == Some(&"") {
-                lines.len() - 1
-            } else {
-                lines.len()
-            }
-        });
+    let insert_at = next_section.unwrap_or_else(|| {
+        if lines.last() == Some(&"") {
+            lines.len() - 1
+        } else {
+            lines.len()
+        }
+    });
     lines.splice(insert_at..insert_at, missing);
     Some(lines.join("\n"))
 }

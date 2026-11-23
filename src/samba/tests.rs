@@ -397,6 +397,26 @@ fn only_missing_time_machine_globals_are_added() {
 }
 
 #[test]
+fn a_shares_own_settings_do_not_count_as_time_machine_globals() {
+    let conf = "[global]\n   workgroup = W\n\n[protect]\n   path = /srv/video\n   vfs objects = streams_xattr\n   ea support = yes\n   min protocol = SMB3\n";
+    let out = add_time_machine_globals(conf).unwrap();
+    let global = &out[..out.find("[protect]").unwrap()];
+    for setting in [
+        "   min protocol = SMB2",
+        "   ea support = yes",
+        "   vfs objects = catia fruit streams_xattr",
+    ] {
+        assert!(global.contains(setting), "missing {setting} in [global]:\n{out}");
+    }
+}
+
+#[test]
+fn time_machine_globals_are_recognised_however_they_are_spelled() {
+    let conf = "[global]\n   Min Protocol = SMB3\n   EA support=yes\n   vfs  objects = fruit\n";
+    assert_eq!(add_time_machine_globals(conf), None);
+}
+
+#[test]
 fn nothing_changes_when_all_time_machine_globals_exist() {
     let conf =
         "[global]\n   min protocol = SMB2\n   ea support = yes\n   vfs objects = catia fruit streams_xattr\n";
@@ -992,6 +1012,9 @@ fn switching_time_machine_off_restores_the_presets_own_settings() {
             )
             .unwrap();
     }
-    assert!(rig.conf().contains("   vfs objects = streams_xattr\n"));
-    assert!(!rig.conf().contains("fruit"));
+    // [global] keeps the Time Machine settings; the share goes back to its own.
+    let conf = rig.conf();
+    let cams = &conf[conf.find("[cams]").unwrap()..];
+    assert!(cams.contains("   vfs objects = streams_xattr\n"), "{cams}");
+    assert!(!cams.contains("fruit"), "{cams}");
 }
