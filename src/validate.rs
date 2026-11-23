@@ -132,7 +132,7 @@ pub fn nfs_clients(clients: &str) -> Result<()> {
     if clients.is_empty() {
         return Err("clients specification is required".into());
     }
-    if clients.contains(|c| "[]{}()\\|;'\"".contains(c)) {
+    if clients.contains(|c| "[]{}()\\|;'\"`$&<>\n\r".contains(c)) {
         return Err("clients specification contains invalid characters".into());
     }
     Ok(())

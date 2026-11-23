@@ -101,3 +101,10 @@ fn nfs_clients_rules() {
     assert!(nfs_clients("a;b").is_err());
     assert!(nfs_clients("a(b)").is_err());
 }
+
+#[test]
+fn nfs_clients_reject_shell_and_line_break_characters() {
+    for bad in ["a`id`", "a$HOME", "a&b", "a<b", "a>b", "a\n/etc *(rw)", "a\rb"] {
+        assert!(nfs_clients(bad).is_err(), "{bad:?}");
+    }
+}
