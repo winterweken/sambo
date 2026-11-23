@@ -35,14 +35,20 @@ pub fn parse_showmount_output(server: &str, output: &str) -> Result<Vec<NfsExpor
             return Err("unexpected showmount output format".into());
         }
     }
+    // The output comes from another machine and is shown in a terminal, so
+    // control characters (escape sequences included) are dropped.
+    let clean = |field: &str| -> String { field.chars().filter(|c| !c.is_control()).collect() };
     Ok(lines
         .filter_map(|line| {
-            let mut fields = line.split_whitespace();
-            let path = fields.next()?;
+            let mut fields = line
+                .split_whitespace()
+                .map(clean)
+                .filter(|field| !field.is_empty());
+            let path = fields.next().filter(|path| path.starts_with('/'))?;
             Some(NfsExport {
                 server: server.to_string(),
-                path: path.to_string(),
-                clients: fields.map(str::to_string).collect(),
+                path,
+                clients: fields.collect(),
             })
         })
         .collect())

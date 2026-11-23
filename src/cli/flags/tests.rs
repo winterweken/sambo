@@ -69,3 +69,10 @@ fn string_flag_without_a_value_is_an_error() {
 fn invalid_bool_value_is_an_error() {
     assert!(parse(&args(&["-readonly=maybe"]), STRINGS, BOOLS).is_err());
 }
+
+#[test]
+fn a_bool_flag_that_was_not_given_is_distinguishable_from_false() {
+    let f = parse(&args(&["-readonly=false"]), STRINGS, BOOLS).unwrap();
+    assert_eq!(f.given("readonly"), Some(false));
+    assert_eq!(f.given("browseable"), None);
+}

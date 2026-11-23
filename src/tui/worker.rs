@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use super::app::{Component, Loaded, Request, Response, ScanResult, SystemInfo, Tab};
+use crate::cli::util::{cifs_options, sudo_ids};
 use crate::mount::{self, discover};
 use crate::samba::Manager;
 use crate::system::packages as pkg;
@@ -83,8 +84,8 @@ fn apply(manager: &Manager, request: Request) -> Result<Vec<String>> {
         Request::ModifyExport {
             path,
             clients,
-            options,
-        } => nfs::modify(&path, Some(clients), Some(options)),
+            changes,
+        } => nfs::modify(&path, Some(clients), changes),
         Request::RemoveExport(path) => done(nfs::remove(&path)),
         Request::AddUser { username, password } => done(user::add(&username, &password, true)),
         Request::SetPassword { username, password } => done(user::set_password(&username, &password)),
@@ -92,9 +93,15 @@ fn apply(manager: &Manager, request: Request) -> Result<Vec<String>> {
         Request::MountCifs {
             source,
             mount_point,
-            options,
+            username,
+            password,
             persistent,
-        } => done(mount::mount_cifs(&source, &mount_point, &options, persistent)),
+        } => {
+            // Like the CLI, mount the share as the user who ran sudo.
+            let (uid, gid) = sudo_ids(|name| std::env::var(name).ok());
+            let options = cifs_options("", &username, &password, uid.as_deref(), gid.as_deref());
+            done(mount::mount_cifs(&source, &mount_point, &options, persistent))
+        }
         Request::MountNfs {
             source,
             mount_point,

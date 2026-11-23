@@ -8,7 +8,7 @@ mod update;
 
 use crate::mount::discover::NfsServer;
 use crate::mount::Mount;
-use crate::nfs::Export;
+use crate::nfs::{Export, OptionChanges};
 use crate::samba::{Share, ShareUpdate};
 use crate::service;
 use crate::user::User;
@@ -83,7 +83,7 @@ pub enum Request {
     ModifyExport {
         path: String,
         clients: String,
-        options: String,
+        changes: OptionChanges,
     },
     RemoveExport(String),
     AddUser {
@@ -98,7 +98,8 @@ pub enum Request {
     MountCifs {
         source: String,
         mount_point: String,
-        options: String,
+        username: String,
+        password: String,
         persistent: bool,
     },
     MountNfs {
@@ -170,7 +171,8 @@ pub enum Purpose {
     CreateShare,
     ModifyShare(String),
     CreateExport,
-    ModifyExport(String),
+    /// The export as it was when the form opened.
+    ModifyExport(Export),
     AddUser,
     SetPassword(String),
     MountCifs,

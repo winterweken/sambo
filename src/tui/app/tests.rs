@@ -528,19 +528,31 @@ fn an_export_needs_a_path() {
 #[test]
 fn editing_an_export_prefills_its_flags() {
     let mut app = on_tab(Tab::Exports);
-    app.data.exports[0].options = crate::nfs::build_options(true, true, false);
+    app.data.exports[0].options = "ro,async,fsid=1".into();
     press(&mut app, 'e');
     assert!(form(&app).checked("read_only"));
     assert!(form(&app).checked("async"));
     assert!(!form(&app).checked("no_root_squash"));
+}
+
+#[test]
+fn saving_an_export_changes_only_the_flags_that_were_toggled() {
+    let mut app = on_tab(Tab::Exports);
+    app.data.exports[0].options = "ro,async,fsid=1".into();
+    press(&mut app, 'e');
     type_text(&mut app, " 10.0.0.0/24");
+    app.on_key(key(KeyCode::Tab));
+    press(&mut app, ' ');
     app.on_key(ctrl('s'));
     assert_eq!(
         app.take_requests(),
         vec![Request::ModifyExport {
             path: "/srv/a".into(),
             clients: "* 10.0.0.0/24".into(),
-            options: crate::nfs::build_options(true, true, false),
+            changes: crate::nfs::OptionChanges {
+                read_only: Some(false),
+                ..Default::default()
+            },
         }]
     );
 }
@@ -557,7 +569,7 @@ fn removing_an_export_asks_first() {
 // ── mounts ──────────────────────────────────────────────────────────────
 
 #[test]
-fn mounting_a_cifs_share_builds_the_credentials_options() {
+fn mounting_a_cifs_share_passes_on_the_credentials() {
     let mut app = on_tab(Tab::Mounts);
     press(&mut app, 'c');
     type_text(&mut app, "//nas/media");
@@ -575,7 +587,8 @@ fn mounting_a_cifs_share_builds_the_credentials_options() {
         vec![Request::MountCifs {
             source: "//nas/media".into(),
             mount_point: "/mnt/media".into(),
-            options: "username=ann,password=pw,uid=1000,gid=1000".into(),
+            username: "ann".into(),
+            password: "pw".into(),
             persistent: true,
         }]
     );

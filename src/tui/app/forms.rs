@@ -1,8 +1,8 @@
 //! The forms and confirmations of each tab, and the work they turn into.
 
-use crate::cli::util::{cifs_options, parse_csv};
+use crate::cli::util::parse_csv;
 use crate::mount::Mount;
-use crate::nfs::{self, Export};
+use crate::nfs::{self, Export, OptionChanges};
 use crate::samba::{self, Share, ShareUpdate};
 use crate::validate;
 use crate::Result;
@@ -217,13 +217,23 @@ pub fn submission(purpose: &Purpose, form: &Form) -> Result<Job> {
                 Tab::Exports,
             ))
         }
-        Purpose::ModifyExport(path) => {
-            let (_, clients, options) = export_values(form)?;
+        Purpose::ModifyExport(export) => {
+            let (_, clients, _) = export_values(form)?;
+            // Only what the user toggled is changed, so the export's other
+            // options and each client's own options survive the edit.
+            let (read_only, async_mode, no_root_squash) = nfs::option_flags(&export.options);
+            let toggled = |key: &str, before: bool| Some(form.checked(key)).filter(|now| *now != before);
+            let changes = OptionChanges {
+                read_only: toggled("read_only", read_only),
+                async_mode: toggled("async", async_mode),
+                no_root_squash: toggled("no_root_squash", no_root_squash),
+            };
+            let path = &export.path;
             Ok(job(
                 Request::ModifyExport {
                     path: path.clone(),
                     clients,
-                    options,
+                    changes,
                 },
                 format!("Saving export {path}…"),
                 format!("Export {path} updated; NFS exports reloaded"),
@@ -261,13 +271,13 @@ pub fn submission(purpose: &Purpose, form: &Form) -> Result<Job> {
             let (source, mount_point) = (form.text("source"), form.text("mount_point"));
             validate::cifs_source(&source)?;
             validate::mount_point(&mount_point)?;
-            let options = cifs_options("", &form.text("username"), &form.text("password"), None, None);
             let persistent = form.checked("persistent");
             Ok(job(
                 Request::MountCifs {
                     source: source.clone(),
                     mount_point: mount_point.clone(),
-                    options,
+                    username: form.text("username"),
+                    password: form.text("password"),
                     persistent,
                 },
                 format!("Mounting {source}…"),

@@ -44,6 +44,14 @@ pub fn cifs_options(
     opts.join(",")
 }
 
+/// The uid and gid of the user who ran sudo, read through `env` from
+/// SUDO_UID and SUDO_GID. Anything that is not a plain number is ignored,
+/// because the values end up in mount options.
+pub fn sudo_ids(env: impl Fn(&str) -> Option<String>) -> (Option<String>, Option<String>) {
+    let id = |name: &str| env(name).filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()));
+    (id("SUDO_UID"), id("SUDO_GID"))
+}
+
 /// Asks for confirmation of a destructive action; `skip` answers yes.
 pub fn confirm(message: &str, skip: bool) -> bool {
     if skip {

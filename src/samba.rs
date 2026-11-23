@@ -23,6 +23,60 @@ pub const SHARE_TYPES: [(&str, &str); 4] = [
 const UNIFI_MARKER: &str = "# Ubiquiti Protect optimized settings";
 const MEDIA_MARKER: &str = "# Media server optimized settings";
 
+const TIME_MACHINE_FRUIT: [&str; 11] = [
+    "vfs objects = catia fruit streams_xattr",
+    "fruit:metadata = stream",
+    "fruit:model = MacSamba",
+    "fruit:veto_appledouble = no",
+    "fruit:posix_rename = yes",
+    "fruit:zero_file_id = yes",
+    "fruit:wipe_intentionally_left_blank_rfork = yes",
+    "fruit:delete_empty_adfiles = yes",
+    "fruit:nfs_aces = no",
+    "fruit:aapl = yes",
+    "fruit:time machine = yes",
+];
+
+/// Reliability settings Time Machine depends on.
+const TIME_MACHINE_RELIABILITY: [&str; 4] = [
+    "durable handles = yes",
+    "kernel oplocks = no",
+    "kernel share modes = no",
+    "posix locking = no",
+];
+
+const UNIFI_SETTINGS: [&str; 11] = [
+    UNIFI_MARKER,
+    "create mask = 0660",
+    "directory mask = 0770",
+    "force create mode = 0660",
+    "force directory mode = 0770",
+    "inherit permissions = yes",
+    "nt acl support = yes",
+    "store dos attributes = yes",
+    "map acl inherit = yes",
+    "ea support = yes",
+    "vfs objects = streams_xattr",
+];
+
+const MEDIA_SETTINGS: [&str; 6] = [
+    MEDIA_MARKER,
+    "strict locking = no",
+    "min receivefile size = 16384",
+    "use sendfile = yes",
+    "aio read size = 16384",
+    "aio write size = 16384",
+];
+
+/// The lines a non-Time-Machine preset adds to its share.
+fn preset_settings(share_type: &str) -> &'static [&'static str] {
+    match share_type {
+        UNIFI_PROTECT => &UNIFI_SETTINGS,
+        MEDIA => &MEDIA_SETTINGS,
+        _ => &[],
+    }
+}
+
 const BASIC_CONFIG: &str = "[global]
    workgroup = WORKGROUP
    server string = Samba Server
@@ -91,6 +145,34 @@ fn section_name(line: &str) -> Option<&str> {
     (trimmed.starts_with('[') && trimmed.ends_with(']')).then(|| trimmed.trim_matches(['[', ']']))
 }
 
+/// Samba compares parameter names without regard to case or spaces.
+fn normalize_key(key: &str) -> String {
+    key.chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// The `(normalized key, value)` of a `key = value` line; None for comments,
+/// section headers and blank lines.
+fn setting(line: &str) -> Option<(String, &str)> {
+    let line = line.trim();
+    if line.starts_with('#') || line.starts_with(';') {
+        return None;
+    }
+    let (key, value) = line.split_once('=')?;
+    Some((normalize_key(key), value.trim()))
+}
+
+fn truthy(value: &str) -> bool {
+    ["yes", "true", "1", "on"]
+        .iter()
+        .any(|word| value.eq_ignore_ascii_case(word))
+}
+
+/// Inverted spellings of `read only`, already normalized.
+const WRITABLE_KEYS: [&str; 3] = ["writable", "writeable", "writeok"];
+
 /// Parses the shares out of smb.conf content, skipping the special sections.
 pub fn parse_shares(content: &str) -> Vec<Share> {
     let mut shares: Vec<Share> = Vec::new();
@@ -116,22 +198,24 @@ pub fn parse_shares(content: &str) -> Vec<Share> {
             MEDIA_MARKER => share.share_type = MEDIA.to_string(),
             _ => {}
         }
-        if line.starts_with('#') || line.starts_with(';') {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
+        let Some((key, value)) = setting(line) else {
             continue;
         };
-        let value = value.trim();
-        let yes = value.eq_ignore_ascii_case("yes");
-        match key.trim() {
+        match key.as_str() {
             "path" => share.path = value.to_string(),
             "comment" => share.comment = value.to_string(),
-            "read only" => share.read_only = yes,
-            "browseable" | "browsable" => share.browseable = yes,
-            "valid users" => share.valid_users = value.split_whitespace().map(str::to_string).collect(),
-            "fruit:time machine" => share.time_machine = yes,
-            "fruit:time machine max size" => share.time_machine_max_size = value.to_string(),
+            "readonly" => share.read_only = truthy(value),
+            k if WRITABLE_KEYS.contains(&k) => share.read_only = !truthy(value),
+            "browseable" | "browsable" => share.browseable = truthy(value),
+            "validusers" => {
+                share.valid_users = value
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|user| !user.is_empty())
+                    .map(str::to_string)
+                    .collect();
+            }
+            "fruit:timemachine" => share.time_machine = truthy(value),
+            "fruit:timemachinemaxsize" => share.time_machine_max_size = value.to_string(),
             _ => {}
         }
     }
@@ -173,55 +257,121 @@ pub fn render_share(share: &Share) -> String {
     let mut add = |settings: &[&str]| lines.extend(settings.iter().map(|s| format!("   {s}")));
     match share.effective_type() {
         TIME_MACHINE => {
-            add(&[
-                "vfs objects = catia fruit streams_xattr",
-                "fruit:metadata = stream",
-                "fruit:model = MacSamba",
-                "fruit:veto_appledouble = no",
-                "fruit:posix_rename = yes",
-                "fruit:zero_file_id = yes",
-                "fruit:wipe_intentionally_left_blank_rfork = yes",
-                "fruit:delete_empty_adfiles = yes",
-                "fruit:nfs_aces = no",
-                "fruit:aapl = yes",
-                "fruit:time machine = yes",
-            ]);
+            add(&TIME_MACHINE_FRUIT);
             let max_size = share.time_machine_max_size.as_str();
             if !max_size.is_empty() && max_size != "0" {
                 add(&[&format!("fruit:time machine max size = {max_size}")]);
             }
-            // Reliability settings Time Machine depends on.
-            add(&[
-                "durable handles = yes",
-                "kernel oplocks = no",
-                "kernel share modes = no",
-                "posix locking = no",
-            ]);
+            add(&TIME_MACHINE_RELIABILITY);
         }
-        UNIFI_PROTECT => add(&[
-            UNIFI_MARKER,
-            "create mask = 0660",
-            "directory mask = 0770",
-            "force create mode = 0660",
-            "force directory mode = 0770",
-            "inherit permissions = yes",
-            "nt acl support = yes",
-            "store dos attributes = yes",
-            "map acl inherit = yes",
-            "ea support = yes",
-            "vfs objects = streams_xattr",
-        ]),
-        MEDIA => add(&[
-            MEDIA_MARKER,
-            "strict locking = no",
-            "min receivefile size = 16384",
-            "use sendfile = yes",
-            "aio read size = 16384",
-            "aio write size = 16384",
-        ]),
-        _ => {}
+        other => add(preset_settings(other)),
     }
     lines.join("\n") + "\n"
+}
+
+/// Sets `keys[0]` in a section's lines, or removes it when `value` is None.
+/// `keys` lists every spelling of the setting; the first matching line is
+/// reused and the others are dropped so that none of them can override it.
+fn set_setting(section: &mut Vec<String>, keys: &[&str], value: Option<&str>) {
+    let normalized: Vec<String> = keys.iter().map(|key| normalize_key(key)).collect();
+    let matches = |line: &String| setting(line).is_some_and(|(key, _)| normalized.contains(&key));
+    let first = section.iter().position(matches);
+    let mut index = 0;
+    section.retain(|line| {
+        index += 1;
+        Some(index - 1) == first || !matches(line)
+    });
+    match (first, value) {
+        (Some(at), Some(value)) => section[at] = format!("   {} = {value}", keys[0]),
+        (Some(at), None) => {
+            section.remove(at);
+        }
+        (None, Some(value)) => section.push(format!("   {} = {value}", keys[0])),
+        (None, None) => {}
+    }
+}
+
+/// Applies the fields of `update` that differ from `current` to the share's
+/// section of smb.conf. Every other line, including settings sambo does not
+/// manage, is left exactly as it is.
+pub fn update_share_section(content: &str, current: &Share, update: &ShareUpdate) -> String {
+    let lines: Vec<&str> = content.split('\n').collect();
+    let Some(header) = lines
+        .iter()
+        .position(|line| section_name(line) == Some(current.name.as_str()))
+    else {
+        return content.to_string();
+    };
+    let mut end = lines[header + 1..]
+        .iter()
+        .position(|line| section_name(line).is_some())
+        .map_or(lines.len(), |offset| header + 1 + offset);
+    // Blank lines before the next section stay between the sections.
+    while end > header + 1 && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    let mut section: Vec<String> = lines[header + 1..end]
+        .iter()
+        .map(|line| line.to_string())
+        .collect();
+
+    fn changed<'a, T: PartialEq>(new: &'a Option<T>, old: &T) -> Option<&'a T> {
+        new.as_ref().filter(|new| *new != old)
+    }
+    let yes_no = |b: bool| if b { "yes" } else { "no" };
+    let non_empty = |value: &str| (!value.is_empty()).then(|| value.to_string());
+
+    if let Some(comment) = changed(&update.comment, &current.comment) {
+        set_setting(&mut section, &["comment"], non_empty(comment).as_deref());
+    }
+    if let Some(read_only) = changed(&update.read_only, &current.read_only) {
+        let keys = ["read only", "writable", "writeable", "write ok"];
+        set_setting(&mut section, &keys, Some(yes_no(*read_only)));
+    }
+    if let Some(browseable) = changed(&update.browseable, &current.browseable) {
+        set_setting(
+            &mut section,
+            &["browseable", "browsable"],
+            Some(yes_no(*browseable)),
+        );
+    }
+    if let Some(users) = changed(&update.valid_users, &current.valid_users) {
+        set_setting(
+            &mut section,
+            &["valid users"],
+            non_empty(&users.join(" ")).as_deref(),
+        );
+    }
+    if let Some(time_machine) = changed(&update.time_machine, &current.time_machine) {
+        let own = TIME_MACHINE_FRUIT.iter().chain(&TIME_MACHINE_RELIABILITY);
+        if *time_machine {
+            for (key, value) in own.filter_map(|line| line.split_once(" = ")) {
+                set_setting(&mut section, &[key], Some(value));
+            }
+        } else {
+            for (key, _) in own.filter_map(|line| line.split_once(" = ")) {
+                set_setting(&mut section, &[key], None);
+            }
+            set_setting(&mut section, &["fruit:time machine max size"], None);
+            // Time Machine may have replaced a setting the share's preset needs.
+            for (key, value) in
+                (preset_settings(&current.share_type).iter()).filter_map(|line| line.split_once(" = "))
+            {
+                let key_normalized = normalize_key(key);
+                if !section
+                    .iter()
+                    .any(|line| setting(line).is_some_and(|(k, _)| k == key_normalized))
+                {
+                    set_setting(&mut section, &[key], Some(value));
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<&str> = lines[..=header].to_vec();
+    result.extend(section.iter().map(String::as_str));
+    result.extend(&lines[end..]);
+    result.join("\n")
 }
 
 /// Adds the global settings Time Machine needs to the `[global]` section.
@@ -413,24 +563,16 @@ impl Manager {
     /// Updates a share in place. The new config is validated in a temp file
     /// and then renamed over smb.conf, so a bad edit never goes live.
     pub fn modify(&self, name: &str, update: ShareUpdate) -> Result<Vec<String>> {
-        let mut share = self.get(name)?;
-        let was_time_machine = share.time_machine;
-
-        if let Some(comment) = update.comment {
-            share.comment = comment;
-        }
-        if let Some(read_only) = update.read_only {
-            share.read_only = read_only;
-        }
-        if let Some(browseable) = update.browseable {
-            share.browseable = browseable;
-        }
-        if let Some(valid_users) = update.valid_users {
-            share.valid_users = valid_users;
-        }
-        if let Some(time_machine) = update.time_machine {
-            share.time_machine = time_machine;
-        }
+        let current = self.get(name)?;
+        let was_time_machine = current.time_machine;
+        let share = Share {
+            valid_users: update
+                .valid_users
+                .clone()
+                .unwrap_or_else(|| current.valid_users.clone()),
+            time_machine: update.time_machine.unwrap_or(was_time_machine),
+            ..current.clone()
+        };
 
         // A share that becomes a Time Machine target needs what `create` sets up.
         if share.time_machine && !was_time_machine {
@@ -442,7 +584,7 @@ impl Manager {
 
         self.backup_config()?;
         let conf = self.conf_path();
-        let content = remove_share_section(&self.read_conf()?, name) + &render_share(&share);
+        let content = update_share_section(&self.read_conf()?, &current, &update);
 
         let tmp = format!("{conf}.tmp");
         self.fs

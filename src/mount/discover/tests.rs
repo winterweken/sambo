@@ -58,3 +58,12 @@ fn subnet_of_an_interface_address() {
         "10.1.0.0/16"
     );
 }
+
+#[test]
+fn control_characters_from_a_server_are_dropped() {
+    let out = "Exports list on h:\n/data\x1b[2J\x07 10.0.0.\x1b]0;x\x07* \x1b\n\x1b[31m\n";
+    let exports = parse_showmount_output("h", out).unwrap();
+    assert_eq!(exports.len(), 1);
+    assert_eq!(exports[0].path, "/data[2J");
+    assert_eq!(exports[0].clients, ["10.0.0.]0;x*"]);
+}

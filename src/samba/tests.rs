@@ -836,3 +836,162 @@ fn turning_a_share_into_a_time_machine_share_prepares_it_like_create_does() {
     assert_eq!(*rig.fs.chowns.lock().unwrap(), [("/srv/docs".to_string(), 1001)]);
     assert_eq!(*rig.fs.chmods.lock().unwrap(), [("/srv/docs".to_string(), 0o700)]);
 }
+
+// --- Editing a share in place ------------------------------------------------
+
+const RESTRICTED: &str = "[global]
+   workgroup = WORKGROUP
+
+[docs]
+   path = /srv/docs
+   # staff only
+   Hosts Allow = 10.0.0.0/8
+   writable = no
+   guest ok = no
+   valid users = alice bob
+
+[other]
+   path = /srv/other
+";
+
+fn restricted_rig() -> Rig {
+    Rig::build(
+        fs_with(RESTRICTED, &["/srv/docs"]),
+        MockExec::default(),
+        platform_with_users(),
+    )
+}
+
+#[test]
+fn modify_keeps_settings_sambo_does_not_manage() {
+    let rig = restricted_rig();
+    rig.manager
+        .modify(
+            "docs",
+            ShareUpdate {
+                comment: Some("Docs".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        rig.conf(),
+        RESTRICTED.replace(
+            "   valid users = alice bob\n",
+            "   valid users = alice bob\n   comment = Docs\n"
+        )
+    );
+}
+
+#[test]
+fn modify_with_unchanged_values_leaves_the_file_as_it_was() {
+    let rig = restricted_rig();
+    let docs = rig.manager.get("docs").unwrap();
+    rig.manager
+        .modify(
+            "docs",
+            ShareUpdate {
+                comment: Some(docs.comment),
+                read_only: Some(docs.read_only),
+                browseable: Some(docs.browseable),
+                valid_users: Some(docs.valid_users),
+                time_machine: Some(docs.time_machine),
+            },
+        )
+        .unwrap();
+    assert_eq!(rig.conf(), RESTRICTED);
+}
+
+#[test]
+fn writable_no_is_read_as_read_only() {
+    let docs = &parse_shares(RESTRICTED)[0];
+    assert!(docs.read_only);
+}
+
+#[test]
+fn keys_are_matched_ignoring_case_and_spaces() {
+    let shares = parse_shares("[a]\n   Path = /srv/a\n   ReadOnly = True\n   Valid Users = ann, bob\n");
+    assert_eq!(shares[0].path, "/srv/a");
+    assert!(shares[0].read_only);
+    assert_eq!(shares[0].valid_users, ["ann", "bob"]);
+}
+
+#[test]
+fn making_a_share_writable_replaces_the_writable_synonym() {
+    let rig = restricted_rig();
+    rig.manager
+        .modify(
+            "docs",
+            ShareUpdate {
+                read_only: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        rig.conf(),
+        RESTRICTED.replace("   writable = no\n", "   read only = no\n")
+    );
+}
+
+#[test]
+fn clearing_a_value_removes_its_line_only() {
+    let rig = restricted_rig();
+    rig.manager
+        .modify(
+            "docs",
+            ShareUpdate {
+                valid_users: Some(vec![]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(rig.conf(), RESTRICTED.replace("   valid users = alice bob\n", ""));
+}
+
+#[test]
+fn time_machine_can_be_switched_on_and_off_without_losing_other_settings() {
+    let rig = restricted_rig();
+    let toggle = |on| ShareUpdate {
+        time_machine: Some(on),
+        ..Default::default()
+    };
+    rig.manager.modify("docs", toggle(true)).unwrap();
+    let conf = rig.conf();
+    assert!(conf.contains("   fruit:time machine = yes\n"));
+    assert!(conf.contains("   Hosts Allow = 10.0.0.0/8\n"));
+    assert!(conf.contains("[other]\n   path = /srv/other\n"));
+
+    // Only the [global] section keeps what Time Machine needed.
+    rig.manager.modify("docs", toggle(false)).unwrap();
+    let docs = &RESTRICTED[RESTRICTED.find("[docs]").unwrap()..];
+    assert!(rig.conf().ends_with(docs), "{}", rig.conf());
+}
+
+#[test]
+fn switching_time_machine_off_restores_the_presets_own_settings() {
+    let protect = Share {
+        share_type: UNIFI_PROTECT.into(),
+        valid_users: vec!["alice".into()],
+        ..share("cams", "/srv/cams")
+    };
+    let conf = format!("[global]\n{}", render_share(&protect));
+    let rig = Rig::build(
+        fs_with(&conf, &["/srv/cams"]),
+        MockExec::default(),
+        platform_with_users(),
+    );
+    for on in [true, false] {
+        rig.manager
+            .modify(
+                "cams",
+                ShareUpdate {
+                    time_machine: Some(on),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    assert!(rig.conf().contains("   vfs objects = streams_xattr\n"));
+    assert!(!rig.conf().contains("fruit"));
+}

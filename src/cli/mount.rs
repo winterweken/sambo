@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::flags;
-use super::util::{cifs_options, RULE};
+use super::util::{cifs_options, sudo_ids, RULE};
 use crate::mount::{self, discover};
 use crate::{platform, Result};
 
@@ -86,13 +86,13 @@ fn mount_cifs(args: &[String]) -> Result<()> {
         println!("⚠️  WARNING: Using -password on the command line is insecure. Your password may be visible in process listings.");
         println!("   Consider using interactive mode or the TUI instead.");
     }
-    let (sudo_uid, sudo_gid) = (std::env::var("SUDO_UID").ok(), std::env::var("SUDO_GID").ok());
+    let (sudo_uid, sudo_gid) = sudo_ids(|name| std::env::var(name).ok());
     let options = cifs_options(
         &f.string("options", ""),
         &f.string("username", ""),
         &password,
-        sudo_uid.as_deref().filter(|s| !s.is_empty()),
-        sudo_gid.as_deref().filter(|s| !s.is_empty()),
+        sudo_uid.as_deref(),
+        sudo_gid.as_deref(),
     );
     let persistent = f.boolean("persistent", false);
     mount::mount_cifs(&source, &mount_point, &options, persistent)

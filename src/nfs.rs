@@ -36,6 +36,108 @@ pub fn option_flags(options: &str) -> (bool, bool, bool) {
     (has("ro"), has("async"), has("no_root_squash"))
 }
 
+/// The export flags an edit wants changed; None leaves a flag as it is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OptionChanges {
+    pub read_only: Option<bool>,
+    pub async_mode: Option<bool>,
+    pub no_root_squash: Option<bool>,
+}
+
+/// Applies `changes` to an options string, keeping every other option.
+pub fn apply_option_changes(options: &str, changes: &OptionChanges) -> String {
+    let mut opts: Vec<&str> = (options.split(',').map(str::trim))
+        .filter(|option| !option.is_empty())
+        .collect();
+    let mut set = |change: Option<bool>, on: &'static str, off: &'static str| {
+        let Some(change) = change else { return };
+        // Drop both spellings so that a leftover cannot contradict the new value.
+        let at = opts.iter().position(|option| *option == on || *option == off);
+        opts.retain(|option| *option != on && *option != off);
+        opts.insert(at.unwrap_or(opts.len()), if change { on } else { off });
+    };
+    set(changes.read_only, "ro", "rw");
+    set(changes.async_mode, "async", "sync");
+    set(changes.no_root_squash, "no_root_squash", "root_squash");
+    opts.join(",")
+}
+
+/// Every `(client, options)` exported for `path`, in file order.
+fn client_specs(content: &str, path: &str) -> Vec<(String, String)> {
+    let mut specs: Vec<(String, String)> = Vec::new();
+    for line in content.lines().filter(|line| !is_ignored(line)) {
+        let mut parts = line.split_whitespace();
+        if parts.next() != Some(path) {
+            continue;
+        }
+        for spec in parts {
+            let (client, options) = match spec.split_once('(') {
+                Some((client, options)) => (client, options.trim_end_matches(')')),
+                None => (spec, ""),
+            };
+            if !specs.iter().any(|(known, _)| known == client) {
+                specs.push((client.to_string(), options.to_string()));
+            }
+        }
+    }
+    specs
+}
+
+/// Rewrites the export of `path` in an exports file. Each client keeps its
+/// own options apart from the flags in `changes`; a client new to the export
+/// starts from the first client's options. Other lines are left alone.
+pub fn modify_content(
+    content: &str,
+    path: &str,
+    clients: Option<&str>,
+    changes: &OptionChanges,
+) -> Result<String> {
+    let specs = client_specs(content, path);
+    let Some((_, template)) = specs.first() else {
+        return Err(format!("export '{path}' not found"));
+    };
+    if specs.iter().any(|(client, _)| client.starts_with('-')) {
+        return Err(format!(
+            "export '{path}' uses default options (-option,...), which sambo cannot edit; change it by hand"
+        ));
+    }
+    let wanted: Vec<&str> = match clients {
+        Some(clients) => clients.split_whitespace().collect(),
+        None => specs.iter().map(|(client, _)| client.as_str()).collect(),
+    };
+    if wanted.is_empty() {
+        return Err("clients specification is required".into());
+    }
+    let entries: Vec<String> = (wanted.iter())
+        .map(|client| {
+            let own = specs.iter().find(|(known, _)| known == client);
+            let options = apply_option_changes(own.map_or(template, |(_, options)| options), changes);
+            if options.is_empty() {
+                client.to_string()
+            } else {
+                format!("{client}({options})")
+            }
+        })
+        .collect();
+    let merged = format!("{path} {}", entries.join(" "));
+
+    let mut placed = false;
+    let lines: Vec<&str> = content
+        .split('\n')
+        .filter_map(|line| {
+            if is_ignored(line) || line.split_whitespace().next() != Some(path) {
+                Some(line)
+            } else if placed {
+                None
+            } else {
+                placed = true;
+                Some(merged.as_str())
+            }
+        })
+        .collect();
+    Ok(lines.join("\n"))
+}
+
 /// Parses `/path client(options) [client(options)...]`. When several clients
 /// are listed, the first client's options are kept.
 pub fn parse_export_line(line: &str) -> Option<Export> {
@@ -175,23 +277,27 @@ pub fn remove(path: &str) -> Result<()> {
     reload()
 }
 
-/// Replaces an export's clients and/or options.
-pub fn modify(path: &str, clients: Option<String>, options: Option<String>) -> Result<Vec<String>> {
-    let mut export = get(path)?;
-    if let Some(clients) = clients {
-        export.clients = clients;
+/// Changes an export's clients and/or flags in place.
+pub fn modify(path: &str, clients: Option<String>, changes: OptionChanges) -> Result<Vec<String>> {
+    let warnings: Vec<String> = service::warning("nfs").into_iter().collect();
+    get(path)?;
+    if let Some(clients) = &clients {
+        validate::nfs_clients(clients).map_err(|e| format!("invalid clients: {e}"))?;
     }
-    if let Some(options) = options {
-        export.options = options;
+    if !Path::new(path).exists() {
+        return Err(format!("path '{path}' does not exist"));
     }
-    // Check what `create` will check before the old entry is removed, so a
-    // rejected change cannot leave the export deleted.
-    validate::nfs_clients(&export.clients).map_err(|e| format!("invalid clients: {e}"))?;
-    if !Path::new(&export.path).exists() {
-        return Err(format!("path '{}' does not exist", export.path));
+    let exports_path = platform::nfs_exports_path();
+    let content = fs::read_to_string(exports_path).map_err(|e| format!("failed to read exports: {e}"))?;
+    let updated = modify_content(&content, path, clients.as_deref(), &changes)?;
+
+    backup()?;
+    if let Err(e) = fs::write(exports_path, updated) {
+        restore();
+        return Err(format!("failed to write exports: {e}"));
     }
-    remove(path)?;
-    create(&export)
+    reload()?;
+    Ok(warnings)
 }
 
 fn backup() -> Result<()> {

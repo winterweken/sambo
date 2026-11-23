@@ -54,3 +54,23 @@ fn credentials_that_look_like_uid_or_gid_do_not_suppress_the_defaults() {
         "username=guido,password=rigid,uid=1000,gid=1000"
     );
 }
+
+#[test]
+fn sudo_ids_come_from_the_invoking_users_environment() {
+    let env = |name: &str| match name {
+        "SUDO_UID" => Some("501".to_string()),
+        "SUDO_GID" => Some("20".to_string()),
+        _ => None,
+    };
+    assert_eq!(sudo_ids(env), (Some("501".to_string()), Some("20".to_string())));
+    assert_eq!(sudo_ids(|_| None), (None, None));
+}
+
+#[test]
+fn sudo_ids_that_are_not_numbers_are_ignored() {
+    let env = |name: &str| match name {
+        "SUDO_UID" => Some("0,exec".to_string()),
+        _ => Some(String::new()),
+    };
+    assert_eq!(sudo_ids(env), (None, None));
+}

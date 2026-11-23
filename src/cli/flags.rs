@@ -21,7 +21,12 @@ impl Flags {
     }
 
     pub fn boolean(&self, name: &str, default: bool) -> bool {
-        self.values.get(name).map(|v| v == "true").unwrap_or(default)
+        self.given(name).unwrap_or(default)
+    }
+
+    /// The value of a boolean flag, or None when it was not on the command line.
+    pub fn given(&self, name: &str) -> Option<bool> {
+        self.values.get(name).map(|v| v == "true")
     }
 }
 

@@ -97,8 +97,14 @@ fn modify(args: &[String]) -> Result<()> {
     let f = flags::parse(args, &STRINGS, &BOOLS)?;
     let path = required_path(&f)?;
     let clients = Some(f.string("clients", "")).filter(|c| !c.is_empty());
-    let warnings = nfs::modify(&path, clients, Some(options_from(&f)))
-        .map_err(|e| format!("failed to modify nfs export: {e}"))?;
+    // Only the flags on the command line change; the export keeps its other options.
+    let changes = nfs::OptionChanges {
+        read_only: f.given("readonly"),
+        async_mode: f.given("sync").map(|sync| !sync),
+        no_root_squash: f.given("no-root-squash"),
+    };
+    let warnings =
+        nfs::modify(&path, clients, changes).map_err(|e| format!("failed to modify nfs export: {e}"))?;
     print_warnings(&warnings);
     println!("NFS export '{path}' modified successfully");
     Ok(())
@@ -130,6 +136,10 @@ CREATE/MODIFY OPTIONS:
     -readonly                   Make export read-only (default: false)
     -sync                       Use sync mode (default: true)
     -no-root-squash             Disable root squashing (default: false)
+
+    modify changes only the options given; use -readonly=false, -sync=false
+    or -no-root-squash=false to switch one back. Other export options and
+    each client's own options are kept.
 
 REMOVE OPTIONS:
     -path <path>                Export directory path

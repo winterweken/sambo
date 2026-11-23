@@ -214,7 +214,7 @@ impl App {
             (Tab::Exports, KeyCode::Char('a')) => form(Purpose::CreateExport, forms::create_export()),
             (Tab::Exports, KeyCode::Char('e') | KeyCode::Enter) => data.exports.get(row).and_then(|export| {
                 form(
-                    Purpose::ModifyExport(export.path.clone()),
+                    Purpose::ModifyExport(export.clone()),
                     forms::modify_export(export),
                 )
             }),
