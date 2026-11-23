@@ -202,10 +202,6 @@ pub fn export_line(export: &Export) -> String {
     format!("{} {}\n", export.path, clients.join(" "))
 }
 
-fn backup_path() -> String {
-    format!("{}.backup", platform::nfs_exports_path())
-}
-
 /// Verifies the NFS server is present and makes sure the exports file exists.
 pub fn check_installed() -> Result<()> {
     if platform::is_macos() {
@@ -252,29 +248,25 @@ pub fn create(export: &Export) -> Result<Vec<String>> {
         return Err(format!("path '{}' does not exist", export.path));
     }
 
-    backup()?;
     let exports_path = platform::nfs_exports_path();
     let mut content = fs::read_to_string(exports_path).unwrap_or_default();
     if !content.is_empty() && !content.ends_with('\n') {
         content.push('\n');
     }
     content.push_str(&export_line(export));
-    fs::write(exports_path, content).map_err(|e| format!("failed to write export: {e}"))?;
-
-    reload()?;
+    write_and_reload(Path::new(exports_path), &content, reload)?;
     Ok(warnings)
 }
 
 pub fn remove(path: &str) -> Result<()> {
     get(path)?;
-    backup()?;
     let exports_path = platform::nfs_exports_path();
     let content = fs::read_to_string(exports_path).map_err(|e| format!("failed to read exports: {e}"))?;
-    if let Err(e) = fs::write(exports_path, remove_export_lines(&content, path)) {
-        restore();
-        return Err(format!("failed to write exports: {e}"));
-    }
-    reload()
+    write_and_reload(
+        Path::new(exports_path),
+        &remove_export_lines(&content, path),
+        reload,
+    )
 }
 
 /// Changes an export's clients and/or flags in place.
@@ -290,27 +282,36 @@ pub fn modify(path: &str, clients: Option<String>, changes: OptionChanges) -> Re
     let exports_path = platform::nfs_exports_path();
     let content = fs::read_to_string(exports_path).map_err(|e| format!("failed to read exports: {e}"))?;
     let updated = modify_content(&content, path, clients.as_deref(), &changes)?;
-
-    backup()?;
-    if let Err(e) = fs::write(exports_path, updated) {
-        restore();
-        return Err(format!("failed to write exports: {e}"));
-    }
-    reload()?;
+    write_and_reload(Path::new(exports_path), &updated, reload)?;
     Ok(warnings)
 }
 
-fn backup() -> Result<()> {
-    let exports_path = platform::nfs_exports_path();
-    if !Path::new(exports_path).exists() {
-        return fs::write(exports_path, "").map_err(|e| format!("failed to create exports file: {e}"));
+/// Replaces the exports file with `content` and reloads NFS, keeping the old
+/// file as a backup. If the write or the reload fails, the old file is put
+/// back and reloaded, so a rejected change is not left to take effect later.
+fn write_and_reload(exports_path: &Path, content: &str, reload: impl Fn() -> Result<()>) -> Result<()> {
+    let backup = format!("{}.backup", exports_path.display());
+    let had_file = exports_path.exists();
+    if had_file {
+        fs::copy(exports_path, &backup).map_err(|e| format!("failed to create backup: {e}"))?;
     }
-    fs::copy(exports_path, backup_path()).map_err(|e| format!("failed to create backup: {e}"))?;
+    let restore = || {
+        let _ = if had_file {
+            fs::copy(&backup, exports_path).map(|_| ())
+        } else {
+            fs::remove_file(exports_path)
+        };
+    };
+    if let Err(e) = fs::write(exports_path, content) {
+        restore();
+        return Err(format!("failed to write exports: {e}"));
+    }
+    if let Err(e) = reload() {
+        restore();
+        let _ = reload();
+        return Err(e);
+    }
     Ok(())
-}
-
-fn restore() {
-    let _ = fs::copy(backup_path(), platform::nfs_exports_path());
 }
 
 fn reload() -> Result<()> {

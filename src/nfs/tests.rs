@@ -215,3 +215,48 @@ fn exports_using_default_option_syntax_are_not_rewritten() {
         .unwrap_err()
         .contains("by hand"));
 }
+
+fn exports_file(test: &str, content: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("sambo-exports-{test}-{}", std::process::id()));
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
+#[test]
+fn a_change_is_written_and_the_old_file_kept_as_a_backup() {
+    let path = exports_file("ok", "/srv a(rw)\n");
+    let reloads = std::cell::Cell::new(0);
+    let reload = || {
+        reloads.set(reloads.get() + 1);
+        Ok(())
+    };
+    write_and_reload(&path, "/srv a(ro)\n", reload).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "/srv a(ro)\n");
+    let backup = format!("{}.backup", path.display());
+    assert_eq!(std::fs::read_to_string(&backup).unwrap(), "/srv a(rw)\n");
+    assert_eq!(reloads.get(), 1);
+    let _ = (std::fs::remove_file(&path), std::fs::remove_file(&backup));
+}
+
+#[test]
+fn a_failed_reload_puts_the_old_exports_back_and_reloads_them() {
+    let path = exports_file("fail", "/srv a(rw)\n");
+    let seen = std::cell::RefCell::new(Vec::new());
+    let reload = || {
+        seen.borrow_mut().push(std::fs::read_to_string(&path).unwrap());
+        if seen.borrow().len() == 1 {
+            Err("exportfs: bad option".to_string())
+        } else {
+            Ok(())
+        }
+    };
+    let error = write_and_reload(&path, "/srv a(bogus)\n", reload).unwrap_err();
+    assert!(error.contains("bad option"), "{error}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "/srv a(rw)\n");
+    // The second reload ran against the restored file.
+    assert_eq!(*seen.borrow(), ["/srv a(bogus)\n", "/srv a(rw)\n"]);
+    let _ = (
+        std::fs::remove_file(&path),
+        std::fs::remove_file(format!("{}.backup", path.display())),
+    );
+}
