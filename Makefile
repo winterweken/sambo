@@ -8,7 +8,8 @@ INSTALL_PATH=/usr/local/bin
 # Linux binaries are linked statically against musl so one file runs on any
 # distribution. They are built with `cross` (https://github.com/cross-rs/cross),
 # which needs Docker or Podman; set CROSS=cargo if the targets and linkers are
-# installed locally.
+# installed locally. Each target gets its own target directory: the cross
+# images differ in glibc, so build scripts compiled in one cannot run in another.
 CROSS ?= cross
 LINUX_TARGETS = amd64:x86_64-unknown-linux-musl arm64:aarch64-unknown-linux-musl arm:armv7-unknown-linux-musleabihf
 # macOS binaries need a macOS host with both targets installed:
@@ -32,8 +33,8 @@ build-linux:
 	@set -e; for pair in $(LINUX_TARGETS); do \
 		arch=$${pair%%:*}; target=$${pair#*:}; \
 		echo "Building linux-$$arch ($$target)..."; \
-		$(CROSS) build --release --target $$target; \
-		cp target/$$target/release/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)-linux-$$arch; \
+		$(CROSS) build --release --target $$target --target-dir target/linux-$$arch; \
+		cp target/linux-$$arch/$$target/release/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)-linux-$$arch; \
 	done
 
 build-darwin:
