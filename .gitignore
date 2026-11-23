@@ -11,18 +11,13 @@ sambo-*
 build/
 dist/
 
-# Test binary, built with `go test -c`
-*.test
-
-# Output of the go coverage tool
-*.out
-.claude
-# Go workspace file
-go.work
-
+# Cargo build output
+target/
+Claude.*
 # IDE specific files
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~

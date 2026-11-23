@@ -1,0 +1,17 @@
+[package]
+name = "sambo"
+version = "2.0.0"
+edition = "2021"
+description = "Share Management CLI for Linux and macOS"
+license = "MIT"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+libc = "0.2"
+if-addrs = "0.13"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
