@@ -64,7 +64,7 @@ sudo ./macos-client-setup.sh --setup-automount        # Setup persistent NFS mou
 curl -fsSL https://raw.githubusercontent.com/winterweken/sambo/main/scripts/install.sh | bash
 ```
 
-This automatically detects your OS and architecture, downloads the latest release, and installs to `/usr/local/bin`.
+This automatically detects your OS and architecture, downloads the latest release, and installs to `/usr/local/bin`. On Linux it verifies the binary against the release checksums; on macOS it runs the installer package.
 
 ### Download Pre-built Binary
 
@@ -77,17 +77,15 @@ sudo mv sambo-linux-amd64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/s
 wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-arm64
 sudo mv sambo-linux-arm64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
 
-# macOS Apple Silicon
-wget https://github.com/winterweken/sambo/releases/latest/download/sambo-darwin-arm64
-sudo mv sambo-darwin-arm64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
-
-# macOS Intel
-wget https://github.com/winterweken/sambo/releases/latest/download/sambo-darwin-amd64
-sudo mv sambo-darwin-amd64 /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
+# Linux ARM 32-bit (Raspberry Pi 2/3)
+wget https://github.com/winterweken/sambo/releases/latest/download/sambo-linux-arm
+sudo mv sambo-linux-arm /usr/local/bin/sambo && sudo chmod +x /usr/local/bin/sambo
 
 # Verify
 sudo sambo version
 ```
+
+macOS releases are installer packages rather than bare binaries. Download `sambo-<version>-darwin-arm64.pkg` (Apple Silicon) or `sambo-<version>-darwin-amd64.pkg` (Intel) from the [latest release](https://github.com/winterweken/sambo/releases/latest) and open it, or use the one-liner above, which picks the right package.
 
 ### Build from Source
 
