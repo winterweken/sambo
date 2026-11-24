@@ -59,8 +59,8 @@ jobs:
             Download the `.pkg` installer from the Assets below.
 
             **Assets:**
-            - `sambo-macos-amd64.pkg` (Intel)
-            - `sambo-macos-arm64.pkg` (Apple Silicon)
+            - `sambo-<version>-darwin-amd64.pkg` (Intel)
+            - `sambo-<version>-darwin-arm64.pkg` (Apple Silicon)
             - `macos-client-setup.sh` (Standalone setup script)
 
           draft: false

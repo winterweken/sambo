@@ -62,48 +62,63 @@ get_latest_version() {
 }
 
 # Download and install
+#
+# Releases carry a bare binary per Linux architecture (with checksums.txt) and
+# an installer package per macOS architecture.
 install_sambo() {
-    TARBALL="sambo-${VERSION}-${PLATFORM}.tar.gz"
-    URL="https://github.com/${REPO}/releases/download/v${VERSION}/${TARBALL}"
-
-    info "Downloading $TARBALL..."
-
+    BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
     TMP_DIR=$(mktemp -d)
-    trap "rm -rf $TMP_DIR" EXIT
+    trap 'rm -rf "$TMP_DIR"' EXIT
 
-    if ! curl -fsSL "$URL" -o "$TMP_DIR/$TARBALL"; then
-        error "Failed to download from $URL"
-    fi
-
-    info "Extracting..."
-    tar -xzf "$TMP_DIR/$TARBALL" -C "$TMP_DIR"
-
-    # Find extracted directory
-    EXTRACTED_DIR=$(find "$TMP_DIR" -maxdepth 1 -type d -name "sambo-*" | head -1)
-    if [ -z "$EXTRACTED_DIR" ]; then
-        error "Could not find extracted directory"
-    fi
-
-    # Install binary
-    info "Installing sambo to $INSTALL_DIR (requires sudo)..."
-    sudo install -m 755 "$EXTRACTED_DIR/sambo" "$INSTALL_DIR/sambo"
-
-    # Install scripts
-    info "Installing scripts to $SCRIPTS_DIR..."
-    sudo mkdir -p "$SCRIPTS_DIR"
-    if [ -d "$EXTRACTED_DIR/scripts" ]; then
-        sudo cp -r "$EXTRACTED_DIR/scripts/"* "$SCRIPTS_DIR/"
-        sudo chmod +x "$SCRIPTS_DIR/"*.sh 2>/dev/null || true
+    if [ "$OS" = "darwin" ]; then
+        install_macos_package
+    else
+        install_linux_binary
     fi
 
     success "Sambo $VERSION installed successfully!"
 }
 
+download() {
+    info "Downloading $1..."
+    if ! curl -fsSL "$BASE_URL/$1" -o "$TMP_DIR/$1"; then
+        error "Failed to download from $BASE_URL/$1"
+    fi
+}
+
+install_macos_package() {
+    [ "$ARCH" = "arm" ] && error "No macOS package for architecture: $ARCH"
+    PKG="sambo-${VERSION}-${PLATFORM}.pkg"
+    download "$PKG"
+
+    info "Installing $PKG (requires sudo)..."
+    sudo installer -pkg "$TMP_DIR/$PKG" -target /
+}
+
+install_linux_binary() {
+    BINARY="sambo-${PLATFORM}"
+    download "$BINARY"
+    download "checksums.txt"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        info "Verifying checksum..."
+        if ! (cd "$TMP_DIR" && grep " ${BINARY}\$" checksums.txt | sha256sum -c - >/dev/null); then
+            error "Checksum mismatch for $BINARY"
+        fi
+    else
+        warn "sha256sum not found; skipping checksum verification"
+    fi
+
+    info "Installing sambo to $INSTALL_DIR (requires sudo)..."
+    sudo install -m 755 "$TMP_DIR/$BINARY" "$INSTALL_DIR/sambo"
+}
+
 # Run macOS client setup if on macOS
 run_client_setup() {
-    if [ "$OS" = "darwin" ] && [ -f "$SCRIPTS_DIR/macos-client-setup.sh" ]; then
+    # Piped from curl, stdin is the script itself, so the answer comes from the terminal.
+    if [ "$OS" = "darwin" ] && [ -f "$SCRIPTS_DIR/macos-client-setup.sh" ] && [ -t 1 ] && [ -r /dev/tty ]; then
         echo ""
-        read -p "Run macOS client setup to verify requirements? [Y/n] " -n 1 -r
+        read -p "Run macOS client setup to verify requirements? [Y/n] " -n 1 -r </dev/tty
         echo ""
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
             "$SCRIPTS_DIR/macos-client-setup.sh"
